@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#11151c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tresor">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Tresor</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <!-- Ersteinrichtung -->
+  <section id="view-setup" class="view center" hidden>
+    <div class="card narrow">
+      <div class="logo">🔐</div>
+      <h1>Neuen Tresor anlegen</h1>
+      <p class="muted">Wähle ein starkes Masterpasswort. <strong>Ohne dieses Passwort kommt niemand an deine Daten – auch du nicht.</strong> Es gibt keine Wiederherstellung.</p>
+      <form id="setup-form">
+        <label>Masterpasswort
+          <input type="password" id="setup-pw" autocomplete="new-password" required minlength="10">
+        </label>
+        <div class="meter"><span id="setup-meter"></span></div>
+        <p class="hint" id="setup-strength">Mindestens 10 Zeichen. Tipp: mehrere Wörter, z. B. „Kaffee-Blitz-Gitarre-42“.</p>
+        <label>Wiederholen
+          <input type="password" id="setup-pw2" autocomplete="new-password" required>
+        </label>
+        <p class="error" id="setup-error"></p>
+        <button class="btn primary block" type="submit">Tresor anlegen</button>
+      </form>
+      <div class="divider"><span>oder</span></div>
+      <button class="btn block" id="setup-import">Vorhandene Tresor-Datei laden</button>
+    </div>
+  </section>
+
+  <!-- Entsperren -->
+  <section id="view-unlock" class="view center" hidden>
+    <div class="card narrow">
+      <div class="logo">🔒</div>
+      <h1>Tresor gesperrt</h1>
+      <form id="unlock-form">
+        <label>Masterpasswort
+          <input type="password" id="unlock-pw" autocomplete="current-password" required autofocus>
+        </label>
+        <p class="error" id="unlock-error"></p>
+        <button class="btn primary block" type="submit">Entsperren</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Hauptansicht -->
+  <section id="view-main" class="view" hidden>
+    <header class="topbar">
+      <h1 class="brand">🔐 Tresor</h1>
+      <div class="actions">
+        <button class="icon-btn" id="btn-generator" title="Passwort-Generator" aria-label="Passwort-Generator">🎲</button>
+        <button class="icon-btn" id="btn-settings" title="Einstellungen" aria-label="Einstellungen">⚙️</button>
+        <button class="icon-btn" id="btn-lock" title="Sperren" aria-label="Sperren">🔒</button>
+      </div>
+    </header>
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Suchen …" autocomplete="off" aria-label="Suchen">
+    </div>
+    <nav class="chips" id="folder-chips" aria-label="Ordner"></nav>
+    <ul class="list" id="entry-list"></ul>
+    <p class="empty muted" id="empty" hidden></p>
+    <button class="fab" id="btn-add" aria-label="Neuer Eintrag">＋</button>
+  </section>
+
+  <!-- Eintrag ansehen -->
+  <dialog id="dlg-view" class="sheet">
+    <header class="sheet-head">
+      <h2 id="view-title"></h2>
+      <button class="icon-btn" data-close aria-label="Schließen">✕</button>
+    </header>
+    <div class="sheet-body" id="view-body"></div>
+    <footer class="sheet-foot">
+      <button class="btn danger" id="view-delete">Löschen</button>
+      <button class="btn primary" id="view-edit">Bearbeiten</button>
+    </footer>
+  </dialog>
+
+  <!-- Eintrag bearbeiten -->
+  <dialog id="dlg-edit" class="sheet">
+    <form id="edit-form" method="dialog">
+      <header class="sheet-head">
+        <h2 id="edit-heading">Neuer Eintrag</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <div class="sheet-body">
+        <label>Name<input id="edit-title" required placeholder="z. B. Amazon"></label>
+        <label>Benutzername / E-Mail<input id="edit-username" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label>Passwort
+          <div class="row">
+            <input id="edit-password" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <button class="icon-btn" type="button" id="edit-toggle" aria-label="Anzeigen">👁</button>
+            <button class="icon-btn" type="button" id="edit-gen" aria-label="Generieren" title="Generieren">🎲</button>
+          </div>
+        </label>
+        <div class="meter"><span id="edit-meter"></span></div>
+        <label>Webseite<input id="edit-url" inputmode="url" placeholder="z. B. amazon.de" autocapitalize="off" spellcheck="false"></label>
+        <label>Ordner
+          <select id="edit-folder"></select>
+        </label>
+        <label>Notizen<textarea id="edit-notes" rows="3"></textarea></label>
+      </div>
+      <footer class="sheet-foot">
+        <button class="btn" type="button" data-close>Abbrechen</button>
+        <button class="btn primary" type="submit">Speichern</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Generator -->
+  <dialog id="dlg-gen" class="sheet">
+    <header class="sheet-head">
+      <h2>Passwort-Generator</h2>
+      <button class="icon-btn" data-close aria-label="Schließen">✕</button>
+    </header>
+    <div class="sheet-body">
+      <output id="gen-output" class="gen-output"></output>
+      <div class="meter"><span id="gen-meter"></span></div>
+      <label class="range">Länge: <strong id="gen-len-label">20</strong>
+        <input type="range" id="gen-length" min="8" max="64" value="20">
+      </label>
+      <div class="checks">
+        <label><input type="checkbox" id="gen-lower" checked> a–z</label>
+        <label><input type="checkbox" id="gen-upper" checked> A–Z</label>
+        <label><input type="checkbox" id="gen-digits" checked> 0–9</label>
+        <label><input type="checkbox" id="gen-symbols" checked> !@#…</label>
+        <label><input type="checkbox" id="gen-ambiguous"> ähnliche Zeichen (l, I, O, 0, 1)</label>
+      </div>
+    </div>
+    <footer class="sheet-foot">
+      <button class="btn" id="gen-refresh">Neu</button>
+      <button class="btn" id="gen-copy">Kopieren</button>
+      <button class="btn primary" id="gen-use" hidden>Übernehmen</button>
+    </footer>
+  </dialog>
+
+  <!-- Einstellungen -->
+  <dialog id="dlg-settings" class="sheet">
+    <header class="sheet-head">
+      <h2>Einstellungen</h2>
+      <button class="icon-btn" data-close aria-label="Schließen">✕</button>
+    </header>
+    <div class="sheet-body">
+      <h3>Ordner</h3>
+      <ul class="folder-admin" id="folder-admin"></ul>
+      <form class="row" id="folder-add-form">
+        <input id="folder-new" placeholder="Neuer Ordner" required>
+        <button class="btn" type="submit">Hinzufügen</button>
+      </form>
+
+      <h3>Sicherheit</h3>
+      <label>Automatisch sperren nach
+        <select id="autolock">
+          <option value="1">1 Minute</option>
+          <option value="5">5 Minuten</option>
+          <option value="15">15 Minuten</option>
+          <option value="60">1 Stunde</option>
+        </select>
+      </label>
+      <button class="btn block" id="btn-change-pw">Masterpasswort ändern</button>
+
+      <h3>Geräte abgleichen &amp; Backup</h3>
+      <p class="muted small">Die Datei ist mit deinem Masterpasswort verschlüsselt. Beim Laden auf einem anderen Gerät werden die Einträge zusammengeführt – die neuere Version gewinnt.</p>
+      <p class="muted small" id="last-export"></p>
+      <div class="row">
+        <button class="btn grow" id="btn-export">Exportieren</button>
+        <button class="btn grow" id="btn-import">Importieren</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Passwort-Abfrage (Import / Passwort ändern) -->
+  <dialog id="dlg-prompt" class="sheet small-sheet">
+    <form id="prompt-form" method="dialog">
+      <header class="sheet-head">
+        <h2 id="prompt-title"></h2>
+        <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
+      </header>
+      <div class="sheet-body" id="prompt-fields"></div>
+      <p class="error pad" id="prompt-error"></p>
+      <footer class="sheet-foot">
+        <button class="btn" type="button" data-close>Abbrechen</button>
+        <button class="btn primary" type="submit" id="prompt-ok">OK</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <input type="file" id="file-input" accept=".tresor,.json,application/json" hidden>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
