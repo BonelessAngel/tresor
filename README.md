@@ -41,6 +41,26 @@ Unter ⚙️ → Sicherheit → **„Face ID einrichten“**. Das Gerät legt ei
 | `Strg+Enter` | Webseite öffnen + Passwort kopieren |
 | `Esc` | Suche leeren |
 
+## Browser-Erweiterung (PC: Chrome / Edge)
+
+Der Ordner `extension/` enthält eine Erweiterung, die Logins auf Webseiten ausfüllt.
+
+**Einmal installieren:**
+1. `chrome://extensions` öffnen (Edge: `edge://extensions`)
+2. Oben rechts den **Entwicklermodus** einschalten
+3. **„Entpackte Erweiterung laden“** → den Ordner `Passwort-Manager\extension` wählen
+4. Das Tresor-Symbol über das Puzzle-Symbol in der Leiste anheften
+
+**Tresor laden:** In der App ⚙️ → Exportieren, dann in der Erweiterung ⚙️ → „Tresor-Datei laden“. Nach Änderungen in der App die neue Datei genauso laden. Die Erweiterung liest nur und ändert nichts.
+
+**Benutzen:**
+- Klick aufs Symbol oder `Strg+Shift+L` → Masterpasswort → passende Logins stehen oben → **Ausfüllen** (oder `Enter`)
+- `Strg+Shift+K` füllt direkt aus, wenn es genau einen passenden Login gibt
+- Auf fremden Seiten fragt die Erweiterung vor dem Ausfüllen nach (Schutz vor Phishing)
+- Entsperrte Daten liegen nur im Arbeitsspeicher (`chrome.storage.session`) und werden nach der eingestellten Zeit oder beim Schließen des Browsers gelöscht
+
+Nach Änderungen an `js/crypto.js`: `node extension/sync-shared.js` ausführen und die Erweiterung in `chrome://extensions` neu laden.
+
 ## Lokal starten (PC)
 
 ```bash

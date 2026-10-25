@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tresor – Einstellungen</title>
+  <link rel="stylesheet" href="ext.css">
+  <link rel="stylesheet" href="options.css">
+  <script type="module" src="options.js"></script>
+</head>
+<body>
+  <main class="page">
+    <h1>🔐 Tresor – Erweiterung</h1>
+    <p class="muted">Die Erweiterung nutzt eine Kopie deines Tresors. Exportiere ihn in der Tresor-App (⚙️ → Exportieren) und lade die Datei hier. Sie bleibt verschlüsselt auf diesem PC.</p>
+
+    <section class="card">
+      <h2>Tresor-Datei</h2>
+      <p id="status" class="muted"></p>
+      <button class="btn primary" id="btn-import">Tresor-Datei laden …</button>
+      <input type="file" id="file" accept=".tresor,.json,application/json" hidden>
+      <p class="error" id="import-error"></p>
+      <p class="ok" id="import-ok"></p>
+    </section>
+
+    <section class="card">
+      <h2>Sicherheit</h2>
+      <label>Automatisch sperren nach
+        <select id="autolock">
+          <option value="5">5 Minuten</option>
+          <option value="15">15 Minuten</option>
+          <option value="60">1 Stunde</option>
+          <option value="240">4 Stunden</option>
+        </select>
+      </label>
+      <p class="muted small">Entsperrte Daten liegen nur im Arbeitsspeicher und verschwinden beim Sperren oder wenn du den Browser schließt.</p>
+    </section>
+
+    <section class="card">
+      <h2>Tastenkürzel</h2>
+      <p><kbd>Strg</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Tresor öffnen · <kbd>Strg</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd> passenden Login direkt ausfüllen</p>
+      <p class="muted small">Ändern kannst du sie unter <code>chrome://extensions/shortcuts</code> (Edge: <code>edge://extensions/shortcuts</code>).</p>
+    </section>
+
+    <section class="card">
+      <h2>Entfernen</h2>
+      <button class="btn danger" id="btn-remove">Tresor aus der Erweiterung entfernen</button>
+      <p class="muted small">Löscht nur die Kopie in der Erweiterung, nicht deinen Tresor in der App.</p>
+    </section>
+  </main>
+</body>
+</html>

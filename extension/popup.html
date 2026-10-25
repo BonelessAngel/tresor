@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Tresor</title>
+  <link rel="stylesheet" href="ext.css">
+  <link rel="stylesheet" href="popup.css">
+  <script type="module" src="popup.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1>🔐 Tresor</h1>
+    <div class="actions">
+      <button class="icon-btn" id="btn-options" title="Einstellungen" aria-label="Einstellungen">⚙️</button>
+      <button class="icon-btn" id="btn-lock" title="Sperren" aria-label="Sperren" hidden>🔒</button>
+    </div>
+  </header>
+
+  <!-- Noch keine Datei -->
+  <section id="view-empty" class="pad" hidden>
+    <p>Lade zuerst deinen Tresor in die Erweiterung.</p>
+    <ol class="steps muted">
+      <li>Tresor-App öffnen → ⚙️ → <strong>Exportieren</strong></li>
+      <li>Hier auf <strong>Datei laden</strong> klicken und die Datei wählen</li>
+    </ol>
+    <button class="btn primary block" id="btn-setup">Datei laden</button>
+  </section>
+
+  <!-- Gesperrt -->
+  <section id="view-locked" class="pad" hidden>
+    <form id="unlock-form">
+      <label>Masterpasswort
+        <input type="password" id="unlock-pw" autocomplete="off" required autofocus>
+      </label>
+      <p class="error" id="unlock-error"></p>
+      <button class="btn primary block" type="submit" id="unlock-btn">Entsperren</button>
+    </form>
+  </section>
+
+  <!-- Entsperrt -->
+  <section id="view-list" hidden>
+    <div class="pad-x">
+      <input type="search" id="search" placeholder="Suchen …" autocomplete="off" aria-label="Suchen">
+    </div>
+    <div id="list"></div>
+    <p class="hint muted small"><kbd>↑</kbd><kbd>↓</kbd> wählen · <kbd>Enter</kbd> ausfüllen · <kbd>Strg</kbd>+<kbd>C</kbd> Passwort kopieren</p>
+  </section>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

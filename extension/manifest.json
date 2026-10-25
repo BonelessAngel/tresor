@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Tresor – Ausfüllen",
+  "short_name": "Tresor",
+  "version": "1.0.0",
+  "description": "Füllt Logins aus deinem Tresor aus. Alles bleibt verschlüsselt auf deinem PC.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Tresor",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png"
+    }
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["activeTab", "scripting", "storage", "alarms"],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Ctrl+Shift+L" },
+      "description": "Tresor öffnen"
+    },
+    "fill-login": {
+      "suggested_key": { "default": "Ctrl+Shift+K" },
+      "description": "Passenden Login direkt ausfüllen"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'"
+  }
+}
