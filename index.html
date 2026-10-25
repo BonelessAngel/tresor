@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Tresor">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>Tresor</title>
   <link rel="manifest" href="manifest.webmanifest">
@@ -60,6 +60,7 @@
     <header class="topbar">
       <h1 class="brand">🔐 Tresor</h1>
       <div class="actions">
+        <button class="icon-btn badge-host" id="btn-security" title="Sicherheits-Check" aria-label="Sicherheits-Check">🛡<span class="badge" id="security-badge" hidden></span></button>
         <button class="icon-btn" id="btn-generator" title="Passwort-Generator" aria-label="Passwort-Generator">🎲</button>
         <button class="icon-btn" id="btn-settings" title="Einstellungen" aria-label="Einstellungen">⚙️</button>
         <button class="icon-btn" id="btn-lock" title="Sperren" aria-label="Sperren">🔒</button>
@@ -67,7 +68,12 @@
     </header>
     <div class="toolbar">
       <input type="search" id="search" placeholder="Suchen …" autocomplete="off" aria-label="Suchen">
+      <select id="sort" aria-label="Sortierung">
+        <option value="recent">🕒 Zuletzt</option>
+        <option value="alpha">A–Z</option>
+      </select>
     </div>
+    <p class="kbd-hint" id="kbd-hint"><kbd>↑</kbd><kbd>↓</kbd> auswählen · <kbd>Enter</kbd> Passwort kopieren · <kbd>Shift</kbd>+<kbd>Enter</kbd> Benutzername · <kbd>Strg</kbd>+<kbd>Enter</kbd> öffnen + kopieren · <kbd>/</kbd> suchen · <kbd>Esc</kbd> leeren</p>
     <nav class="chips" id="folder-chips" aria-label="Ordner"></nav>
     <ul class="list" id="entry-list"></ul>
     <p class="empty muted" id="empty" hidden></p>
@@ -78,7 +84,10 @@
   <dialog id="dlg-view" class="sheet">
     <header class="sheet-head">
       <h2 id="view-title"></h2>
-      <button class="icon-btn" data-close aria-label="Schließen">✕</button>
+      <div class="actions">
+        <button class="icon-btn" id="view-fav" aria-label="Favorit"></button>
+        <button class="icon-btn" data-close aria-label="Schließen">✕</button>
+      </div>
     </header>
     <div class="sheet-body" id="view-body"></div>
     <footer class="sheet-foot">
@@ -95,17 +104,23 @@
         <button class="icon-btn" type="button" data-close aria-label="Schließen">✕</button>
       </header>
       <div class="sheet-body">
+        <div class="segmented" id="edit-type" role="radiogroup" aria-label="Art">
+          <label><input type="radio" name="type" value="login" checked><span>🔑 Login</span></label>
+          <label><input type="radio" name="type" value="wifi"><span>📶 WLAN</span></label>
+          <label><input type="radio" name="type" value="pin"><span>🔢 PIN</span></label>
+          <label><input type="radio" name="type" value="note"><span>📝 Notiz</span></label>
+        </div>
         <label>Name<input id="edit-title" required placeholder="z. B. Amazon"></label>
-        <label>Benutzername / E-Mail<input id="edit-username" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
-        <label>Passwort
+        <label id="f-username"><span id="l-username">Benutzername / E-Mail</span><input id="edit-username" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label id="f-password"><span id="l-password">Passwort</span>
           <div class="row">
             <input id="edit-password" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
             <button class="icon-btn" type="button" id="edit-toggle" aria-label="Anzeigen">👁</button>
             <button class="icon-btn" type="button" id="edit-gen" aria-label="Generieren" title="Generieren">🎲</button>
           </div>
         </label>
-        <div class="meter"><span id="edit-meter"></span></div>
-        <label>Webseite<input id="edit-url" inputmode="url" placeholder="z. B. amazon.de" autocapitalize="off" spellcheck="false"></label>
+        <div class="meter" id="f-meter"><span id="edit-meter"></span></div>
+        <label id="f-url">Webseite<input id="edit-url" inputmode="url" placeholder="z. B. amazon.de" autocapitalize="off" spellcheck="false"></label>
         <label>Ordner
           <select id="edit-folder"></select>
         </label>
@@ -116,6 +131,15 @@
         <button class="btn primary" type="submit">Speichern</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- Sicherheits-Check -->
+  <dialog id="dlg-security" class="sheet">
+    <header class="sheet-head">
+      <h2>Sicherheits-Check</h2>
+      <button class="icon-btn" data-close aria-label="Schließen">✕</button>
+    </header>
+    <div class="sheet-body" id="security-body"></div>
   </dialog>
 
   <!-- Generator -->

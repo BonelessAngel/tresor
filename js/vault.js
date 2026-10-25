@@ -2,7 +2,7 @@
 // Gelöschte Einträge bleiben als "Grabstein" (deleted: true) erhalten, damit das
 // Zusammenführen zwischen Geräten Löschungen korrekt übernimmt.
 
-import { newKey, keyFromKdf, encryptJson, decryptJson } from "./crypto.js";
+import { newKey, keyFromKdf, encryptJson, decryptJson, needsUpgrade } from "./crypto.js";
 import { loadBlob, saveBlob } from "./storage.js";
 
 let key = null;
@@ -27,6 +27,15 @@ export async function unlock(password) {
   data = await decryptJson(k, blob); // wirft bei falschem Passwort
   key = k;
   kdf = blob.kdf;
+  return upgradeIfNeeded(password);
+}
+
+// Stellt alte Tresore (PBKDF2) automatisch auf Argon2id um. Gibt true zurück, wenn umgestellt.
+async function upgradeIfNeeded(password) {
+  if (!needsUpgrade(kdf)) return false;
+  ({ key, kdf } = await newKey(password));
+  await persist();
+  return true;
 }
 
 export function lock() {
@@ -58,13 +67,32 @@ export async function saveEntry(fields) {
   const t = now();
   const existing = fields.id && data.entries.find((e) => e.id === fields.id);
   if (existing) {
-    if (existing.password !== fields.password && existing.password) {
-      existing.history = [{ password: existing.password, changed: t }, ...(existing.history || [])].slice(0, 10);
+    if (existing.password !== fields.password) {
+      if (existing.password) {
+        existing.history = [{ password: existing.password, changed: t }, ...(existing.history || [])].slice(0, 10);
+      }
+      existing.pwChanged = t;
     }
     Object.assign(existing, fields, { updated: t });
   } else {
-    data.entries.push({ ...fields, id: uid(), created: t, updated: t });
+    data.entries.push({ ...fields, id: uid(), created: t, updated: t, pwChanged: t });
   }
+  await persist();
+}
+
+export async function toggleFavorite(id) {
+  const e = getEntry(id);
+  if (!e) return;
+  Object.assign(e, { favorite: !e.favorite, updated: now() });
+  await persist();
+  return e.favorite;
+}
+
+// Merkt sich die letzte Nutzung, ohne "zuletzt geändert" zu verschieben.
+export async function markUsed(id) {
+  const e = getEntry(id);
+  if (!e) return;
+  e.lastUsed = now();
   await persist();
 }
 
@@ -142,4 +170,5 @@ export async function adoptBlob(blob, password) {
   key = k;
   kdf = blob.kdf;
   await saveBlob(blob);
+  return upgradeIfNeeded(password);
 }

@@ -42,7 +42,11 @@ export function strength(pw) {
   if (/[A-Z]/.test(pw)) pool += 26;
   if (/[0-9]/.test(pw)) pool += 10;
   if (/[^a-zA-Z0-9]/.test(pw)) pool += 30;
-  const bits = Math.round(pw.length * Math.log2(pool || 1));
-  const level = bits < 40 ? 1 : bits < 60 ? 2 : bits < 80 ? 3 : 4;
+  let bits = Math.round(pw.length * Math.log2(pool || 1));
+  // Typische Muster wie "hallo123" oder "Passwort!" sind viel leichter zu erraten.
+  if (/^[a-zA-Z]+[0-9]{0,4}[^a-zA-Z0-9]?$/.test(pw)) bits = Math.round(bits * 0.6);
+  if (/(.)\1\1/.test(pw) || /(012|123|234|345|456|567|678|789|abc|qwe|asd)/i.test(pw)) bits -= 10;
+  bits = Math.max(bits, 0);
+  const level = bits < 50 ? 1 : bits < 65 ? 2 : bits < 80 ? 3 : 4;
   return { bits, level, label: ["", "schwach", "mittel", "gut", "sehr stark"][level] };
 }

@@ -3,13 +3,26 @@
 import * as vault from "./vault.js";
 import { requestPersist } from "./storage.js";
 import { generate, strength } from "./generator.js";
+import { analyze } from "./security.js";
 
 const $ = (sel) => document.querySelector(sel);
 const CLIPBOARD_CLEAR_MS = 30000;
+const finePointer = () => matchMedia("(pointer: fine)").matches;
+
+// Eintragsarten: welche Felder es gibt und wie sie heißen.
+const TYPES = {
+  login: { icon: "", user: "Benutzername / E-Mail", pass: "Passwort", url: true },
+  wifi: { icon: "📶", user: "Netzwerkname (SSID)", pass: "WLAN-Passwort", url: false },
+  pin: { icon: "🔢", user: null, pass: "PIN", url: false },
+  note: { icon: "📝", user: null, pass: null, url: false },
+};
+const typeOf = (e) => TYPES[e.type] ? e.type : "login";
 
 const state = {
-  folder: "all", // "all" | "none" | Ordner-ID
+  folder: "all", // "all" | "fav" | "none" | Ordner-ID
   search: "",
+  sel: 0, // per Tastatur ausgewählter Eintrag
+  visible: [],
   viewing: null,
   lockTimer: null,
   hiddenAt: 0,
@@ -107,11 +120,13 @@ async function busy(button, label, fn) {
 function legacyCopy(text) {
   const ta = el("textarea", { readonly: "", style: "position:fixed;top:0;left:0;opacity:0" });
   ta.value = text;
+  const focused = document.activeElement;
   (document.querySelector("dialog[open]") || document.body).append(ta);
   ta.select();
   ta.setSelectionRange(0, text.length);
   const ok = document.execCommand("copy");
   ta.remove();
+  focused?.focus({ preventScroll: true }); // z. B. Cursor zurück in die Suche
   return ok;
 }
 
@@ -124,10 +139,11 @@ async function writeClipboard(text) {
   }
 }
 
-async function copy(text, what) {
+async function copy(text, what, entryId) {
   if (!text) return toast(`${what} ist leer`);
   if (!(await writeClipboard(text))) return toast("Kopieren nicht möglich");
   toast(`${what} kopiert – wird in 30 s geleert`);
+  if (entryId) vault.markUsed(entryId);
   clearTimeout(state.clipTimer);
   // Kein readText(): das würde auf dem iPhone eine Einfügen-Abfrage zeigen.
   state.clipTimer = setTimeout(() => writeClipboard(" "), CLIPBOARD_CLEAR_MS);
@@ -191,9 +207,14 @@ async function boot() {
 function enterMain() {
   requestPersist();
   show("main");
+  $("#sort").value = setting("sort", "recent");
+  state.sel = 0;
   renderAll();
   resetLockTimer();
+  if (finePointer()) $("#search").focus(); // am Handy würde sonst die Tastatur aufgehen
 }
+
+const UPGRADE_MSG = "Tresor auf stärkere Verschlüsselung (Argon2id) umgestellt – bitte neu exportieren";
 
 // ---------- Ersteinrichtung ----------
 
@@ -216,13 +237,14 @@ $("#setup-form").addEventListener("submit", async (e) => {
 $("#setup-import").addEventListener("click", async () => {
   const blob = await pickFile();
   if (!blob) return;
+  let upgraded = false;
   const ok = await promptDialog({
     title: "Tresor-Datei öffnen",
     fields: [{ id: "pw", label: "Masterpasswort der Datei", type: "password", autocomplete: "current-password" }],
     okLabel: "Öffnen",
     onSubmit: async ({ pw }) => {
       try {
-        await vault.adoptBlob(blob, pw);
+        upgraded = await vault.adoptBlob(blob, pw);
       } catch {
         throw new Error("Falsches Passwort oder ungültige Datei.");
       }
@@ -230,7 +252,7 @@ $("#setup-import").addEventListener("click", async () => {
   });
   if (ok) {
     enterMain();
-    toast("Tresor geladen");
+    toast(upgraded ? UPGRADE_MSG : "Tresor geladen");
   }
 });
 
@@ -240,8 +262,9 @@ $("#unlock-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const err = $("#unlock-error");
   err.textContent = "";
+  let upgraded;
   try {
-    await busy(e.submitter, "Entsperre …", () => vault.unlock($("#unlock-pw").value));
+    upgraded = await busy(e.submitter, "Entsperre …", () => vault.unlock($("#unlock-pw").value));
   } catch {
     err.textContent = "Falsches Masterpasswort.";
     $("#unlock-pw").select();
@@ -249,6 +272,7 @@ $("#unlock-form").addEventListener("submit", async (e) => {
   }
   $("#unlock-pw").value = "";
   enterMain();
+  if (upgraded) toast(UPGRADE_MSG);
 });
 
 // ---------- Hauptansicht ----------
@@ -256,15 +280,22 @@ $("#unlock-form").addEventListener("submit", async (e) => {
 $("#btn-lock").addEventListener("click", lock);
 $("#search").addEventListener("input", (e) => {
   state.search = e.target.value.trim().toLowerCase();
+  state.sel = 0;
+  renderList();
+});
+$("#sort").addEventListener("change", (e) => {
+  setSetting("sort", e.target.value);
   renderList();
 });
 $("#btn-add").addEventListener("click", () => openEdit(null));
 $("#btn-generator").addEventListener("click", () => openGenerator(null));
 $("#btn-settings").addEventListener("click", openSettings);
+$("#btn-security").addEventListener("click", openSecurity);
 
 function renderAll() {
   renderChips();
   renderList();
+  renderSecurityBadge();
 }
 
 function folderName(id) {
@@ -273,14 +304,18 @@ function folderName(id) {
 
 function renderChips() {
   const folders = vault.folders();
-  if (state.folder !== "all" && state.folder !== "none" && !folders.some((f) => f.id === state.folder)) {
+  const hasFav = vault.entries().some((e) => e.favorite);
+  if (state.folder === "fav" && !hasFav) state.folder = "all";
+  if (!["all", "fav", "none"].includes(state.folder) && !folders.some((f) => f.id === state.folder)) {
     state.folder = "all";
   }
   const hasLoose = vault.entries().some((e) => !folderName(e.folder));
-  const chips = [["all", "Alle"], ...folders.map((f) => [f.id, f.name])];
+  const chips = [["all", "Alle"]];
+  if (hasFav) chips.push(["fav", "⭐ Favoriten"]);
+  chips.push(...folders.map((f) => [f.id, f.name]));
   if (folders.length && hasLoose) chips.push(["none", "Ohne Ordner"]);
 
-  $("#folder-chips").hidden = !folders.length;
+  $("#folder-chips").hidden = chips.length < 2;
   $("#folder-chips").replaceChildren(
     ...chips.map(([id, name]) =>
       el("button", {
@@ -288,6 +323,7 @@ function renderChips() {
         "aria-pressed": String(state.folder === id),
         onclick: () => {
           state.folder = id;
+          state.sel = 0;
           renderAll();
         },
       }, name)
@@ -296,38 +332,127 @@ function renderChips() {
 }
 
 function matches(e) {
+  if (state.folder === "fav" && !e.favorite) return false;
   if (state.folder === "none" && folderName(e.folder)) return false;
-  if (state.folder !== "all" && state.folder !== "none" && e.folder !== state.folder) return false;
+  if (!["all", "fav", "none"].includes(state.folder) && e.folder !== state.folder) return false;
   if (!state.search) return true;
   return [e.title, e.username, e.url, e.notes].some((v) => v?.toLowerCase().includes(state.search));
 }
 
+// Favoriten immer oben, danach je nach Auswahl zuletzt benutzt oder alphabetisch.
+function sorted(list) {
+  const recent = $("#sort").value === "recent";
+  return [...list].sort((a, b) =>
+    (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) ||
+    (recent ? (b.lastUsed || 0) - (a.lastUsed || 0) : 0) ||
+    a.title.localeCompare(b.title, "de")
+  );
+}
+
+function iconButton(symbol, label, onclick) {
+  return el("button", { class: "icon-btn", title: label, "aria-label": label, onclick }, symbol);
+}
+
+// Kopiert das Passwort und öffnet die Webseite in einem neuen Tab.
+function openAndCopy(e) {
+  const url = safeUrl(e.url);
+  if (!url) return;
+  copy(e.password, "Passwort", e.id);
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function itemButtons(e) {
+  const t = TYPES[typeOf(e)];
+  const buttons = [];
+  if (t.user && typeOf(e) === "login") buttons.push(iconButton("👤", "Benutzername kopieren", () => copy(e.username, "Benutzername", e.id)));
+  if (t.url && safeUrl(e.url)) buttons.push(iconButton("🌐", "Webseite öffnen + Passwort kopieren", () => openAndCopy(e)));
+  if (t.pass) buttons.push(iconButton("🔑", `${t.pass} kopieren`, () => copy(e.password, t.pass, e.id)));
+  return buttons;
+}
+
+function subtitle(e) {
+  const type = typeOf(e);
+  if (type === "note") return (e.notes || "").split("\n")[0];
+  if (type === "pin") return "PIN";
+  return e.username || hostOf(e.url) || " ";
+}
+
 function renderList() {
   const all = vault.entries();
-  const list = all.filter(matches);
+  const list = sorted(all.filter(matches));
+  state.visible = list;
+  state.sel = Math.min(state.sel, Math.max(list.length - 1, 0));
   $("#entry-list").replaceChildren(
-    ...list.map((e) =>
-      el("li", { class: "item" },
+    ...list.map((e, i) => {
+      const icon = TYPES[typeOf(e)].icon;
+      const selected = i === state.sel && (state.search || state.kbd) && finePointer();
+      return el("li", { class: "item" + (selected ? " selected" : "") },
         el("button", { class: "item-main", onclick: () => openView(e.id) },
-          el("span", { class: "avatar", style: `background:${colorFor(e.title)}` }, (e.title[0] || "?").toUpperCase()),
+          icon
+            ? el("span", { class: "avatar emoji" }, icon)
+            : el("span", { class: "avatar", style: `background:${colorFor(e.title)}` }, (e.title[0] || "?").toUpperCase()),
           el("span", { class: "item-text" },
-            el("div", { class: "item-title" }, e.title),
-            el("div", { class: "item-sub" }, e.username || hostOf(e.url) || " ")
+            el("div", { class: "item-title" }, e.title, e.favorite ? el("span", { class: "star", "aria-label": "Favorit" }, "★") : null),
+            el("div", { class: "item-sub" }, subtitle(e))
           )
         ),
-        el("button", { class: "icon-btn", title: "Benutzername kopieren", "aria-label": "Benutzername kopieren", onclick: () => copy(e.username, "Benutzername") }, "👤"),
-        el("button", { class: "icon-btn", title: "Passwort kopieren", "aria-label": "Passwort kopieren", onclick: () => copy(e.password, "Passwort") }, "🔑")
-      )
-    )
+        ...itemButtons(e)
+      );
+    })
   );
   const empty = $("#empty");
   empty.hidden = list.length > 0;
   empty.textContent = all.length ? "Keine Treffer." : "Noch keine Einträge. Tippe auf ＋, um den ersten anzulegen.";
 }
 
+// ---------- Tastatur (PC) ----------
+
+function moveSelection(delta) {
+  if (!state.visible.length) return;
+  state.sel = (state.sel + delta + state.visible.length) % state.visible.length;
+  renderList();
+  $("#entry-list .selected")?.scrollIntoView({ block: "nearest" });
+}
+
+$("#search").addEventListener("keydown", (e) => {
+  const entry = state.visible[state.sel];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!state.kbd) {
+      state.kbd = true; // erster Pfeil zeigt nur die Auswahl an
+      renderList();
+    } else {
+      moveSelection(e.key === "ArrowDown" ? 1 : -1);
+    }
+  } else if (e.key === "Enter" && entry) {
+    e.preventDefault();
+    const t = TYPES[typeOf(entry)];
+    if (e.ctrlKey || e.metaKey) openAndCopy(entry);
+    else if (e.shiftKey) copy(entry.username, "Benutzername", entry.id);
+    else if (t.pass) copy(entry.password, t.pass, entry.id);
+    else openView(entry.id);
+  } else if (e.key === "Escape") {
+    e.target.value = "";
+    state.search = "";
+    state.sel = 0;
+    state.kbd = false;
+    renderList();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if ($("#view-main").hidden || document.querySelector("dialog[open]")) return;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
+  if ((e.key === "/" && !typing) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
+    e.preventDefault();
+    $("#search").focus();
+    $("#search").select();
+  }
+});
+
 // ---------- Eintrag ansehen ----------
 
-function field(label, value, { secret = false, mono = false, copyAs, link } = {}) {
+function field(label, value, { secret = false, mono = false, copyAs, entryId, link } = {}) {
   if (!value) return null;
   const val = el("span", { class: "val" + (mono ? " mono" : "") });
   let shown = !secret;
@@ -339,23 +464,32 @@ function field(label, value, { secret = false, mono = false, copyAs, link } = {}
     el("div", { class: "field-value" },
       val,
       secret ? el("button", { class: "icon-btn", "aria-label": "Anzeigen", onclick: () => { shown = !shown; paint(); } }, "👁") : null,
-      copyAs ? el("button", { class: "icon-btn", "aria-label": "Kopieren", onclick: () => copy(value, copyAs) }, "📋") : null
+      copyAs ? el("button", { class: "icon-btn", "aria-label": "Kopieren", onclick: () => copy(value, copyAs, entryId) }, "📋") : null
     )
   );
+}
+
+function paintFav(e) {
+  $("#view-fav").textContent = e.favorite ? "★" : "☆";
+  $("#view-fav").title = e.favorite ? "Aus Favoriten entfernen" : "Zu Favoriten";
 }
 
 function openView(id) {
   const e = vault.getEntry(id);
   if (!e) return;
+  const t = TYPES[typeOf(e)];
   state.viewing = id;
   $("#view-title").textContent = e.title;
-  const fmt = (t) => new Date(t).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
+  paintFav(e);
+  const fmt = (ts) => new Date(ts).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
   const notes = e.notes ? el("div", { class: "field" }, el("div", { class: "field-label" }, "Notizen"), el("div", { class: "notes" }, e.notes)) : null;
+  const url = safeUrl(e.url);
   $("#view-body").replaceChildren(
     ...[
-      field("Benutzername", e.username, { copyAs: "Benutzername" }),
-      field("Passwort", e.password, { secret: true, mono: true, copyAs: "Passwort" }),
-      field("Webseite", e.url, { link: safeUrl(e.url) }),
+      t.user ? field(t.user, e.username, { copyAs: t.user, entryId: id }) : null,
+      t.pass ? field(t.pass, e.password, { secret: true, mono: true, copyAs: t.pass, entryId: id }) : null,
+      t.url ? field("Webseite", e.url, { link: url }) : null,
+      t.url && url ? el("button", { class: "btn block", onclick: () => openAndCopy(e) }, "🌐 Öffnen + Passwort kopieren") : null,
       field("Ordner", folderName(e.folder)),
       notes,
       e.history?.length ? field("Frühere Passwörter", `${e.history.length} gespeichert (zuletzt geändert ${fmt(e.history[0].changed)})`) : null,
@@ -364,6 +498,12 @@ function openView(id) {
   );
   $("#dlg-view").showModal();
 }
+
+$("#view-fav").addEventListener("click", async () => {
+  await vault.toggleFavorite(state.viewing);
+  paintFav(vault.getEntry(state.viewing));
+  renderAll();
+});
 
 $("#view-edit").addEventListener("click", () => {
   $("#dlg-view").close();
@@ -392,18 +532,39 @@ function fillFolderSelect(selected) {
   $("#edit-folder").value = folderName(selected) ? selected : "";
 }
 
+const editType = () => document.querySelector('#edit-type input:checked').value;
+
+// Blendet je nach Art die passenden Felder ein und benennt sie.
+function applyEditType() {
+  const type = editType();
+  const t = TYPES[type];
+  $("#f-username").hidden = !t.user;
+  $("#l-username").textContent = t.user || "";
+  $("#f-password").hidden = !t.pass;
+  $("#f-meter").hidden = !t.pass || type === "pin";
+  $("#l-password").textContent = t.pass || "";
+  $("#edit-password").inputMode = type === "pin" ? "numeric" : "text";
+  $("#f-url").hidden = !t.url;
+  $("#edit-notes").rows = type === "note" ? 8 : 3;
+  $("#edit-title").placeholder = { login: "z. B. Amazon", wifi: "z. B. WLAN Zuhause", pin: "z. B. Handy-PIN", note: "z. B. Notfallcodes" }[type];
+}
+
+for (const r of document.querySelectorAll('#edit-type input')) r.addEventListener("change", applyEditType);
+
 function openEdit(id) {
   const e = id ? vault.getEntry(id) : null;
   state.editing = id;
   $("#edit-heading").textContent = e ? "Eintrag bearbeiten" : "Neuer Eintrag";
+  document.querySelector(`#edit-type input[value="${e ? typeOf(e) : "login"}"]`).checked = true;
   $("#edit-title").value = e?.title || "";
   $("#edit-username").value = e?.username || "";
   $("#edit-password").value = e?.password || "";
   $("#edit-password").type = "password";
   $("#edit-url").value = e?.url || "";
   $("#edit-notes").value = e?.notes || "";
-  const preset = e ? e.folder : ["all", "none"].includes(state.folder) ? "" : state.folder;
+  const preset = e ? e.folder : ["all", "fav", "none"].includes(state.folder) ? "" : state.folder;
   fillFolderSelect(preset);
+  applyEditType();
   paintMeter($("#edit-meter"), $("#edit-password").value);
   $("#dlg-edit").showModal();
   if (!e) $("#edit-title").focus();
@@ -414,7 +575,12 @@ $("#edit-toggle").addEventListener("click", () => {
   const p = $("#edit-password");
   p.type = p.type === "password" ? "text" : "password";
 });
-$("#edit-gen").addEventListener("click", () => openGenerator($("#edit-password")));
+$("#edit-gen").addEventListener("click", () => {
+  if (editType() !== "pin") return openGenerator($("#edit-password"));
+  const p = $("#edit-password");
+  p.value = generate({ length: 6, lower: false, upper: false, digits: true, symbols: false, ambiguous: true });
+  p.type = "text";
+});
 
 $("#edit-folder").addEventListener("change", async (e) => {
   if (e.target.value !== NEW_FOLDER) return;
@@ -434,11 +600,15 @@ $("#edit-folder").addEventListener("change", async (e) => {
 
 $("#edit-form").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const type = editType();
+  const t = TYPES[type];
+  // Felder, die zur Art nicht passen, werden geleert.
   const fields = {
+    type,
     title: $("#edit-title").value.trim(),
-    username: $("#edit-username").value.trim(),
-    password: $("#edit-password").value,
-    url: $("#edit-url").value.trim(),
+    username: t.user ? $("#edit-username").value.trim() : "",
+    password: t.pass ? $("#edit-password").value : "",
+    url: t.url ? $("#edit-url").value.trim() : "",
     notes: $("#edit-notes").value,
     folder: $("#edit-folder").value === NEW_FOLDER ? "" : $("#edit-folder").value,
   };
@@ -448,6 +618,56 @@ $("#edit-form").addEventListener("submit", async (e) => {
   renderAll();
   toast("Gespeichert");
 });
+
+// ---------- Sicherheits-Check ----------
+
+function renderSecurityBadge() {
+  const { problems } = analyze(vault.entries());
+  $("#security-badge").hidden = !problems;
+  $("#security-badge").textContent = problems;
+}
+
+function openSecurity() {
+  const r = analyze(vault.entries());
+  const goTo = (id) => () => {
+    $("#dlg-security").close();
+    openView(id);
+  };
+  const group = (title, text, items) =>
+    items.length
+      ? el("div", { class: "sec-group" },
+          el("h3", {}, `${title} (${items.length})`),
+          el("p", { class: "muted small" }, text),
+          el("ul", { class: "sec-list" },
+            ...items.map(([entry, why]) => el("li", {}, el("button", { onclick: goTo(entry.id) }, el("span", {}, entry.title), el("span", { class: "why" }, why))))
+          )
+        )
+      : null;
+
+  const ageText = (e) => {
+    const months = Math.floor((Date.now() - (e.pwChanged || e.created)) / (30 * 24 * 3600 * 1000));
+    return months >= 24 ? `${Math.floor(months / 12)} Jahre` : `${months} Monate`;
+  };
+
+  const body = r.total
+    ? [
+        el("div", { class: "sec-score" },
+          el("span", { class: "big " + (r.problems ? "bad" : "ok") }, `${r.ok}/${r.total}`),
+          el("span", {}, r.problems ? "Passwörter sind in Ordnung. Tippe einen Eintrag an, um ihn zu verbessern." : "Alle Passwörter sind in Ordnung. 🎉")
+        ),
+        group("Mehrfach benutzt", "Wird eines davon geleakt, sind alle betroffen. Gib jedem Konto ein eigenes Passwort.",
+          r.reused.flatMap((g, i) => g.map((e) => [e, `Gruppe ${i + 1} · ${g.length}×`]))),
+        group("Schwach", "Zu kurz oder zu einfach. Nutze den Generator 🎲.",
+          r.weak.map((e) => [e, strength(e.password).label])),
+        group("Älter als 1 Jahr", "Bei wichtigen Konten lohnt sich ab und zu ein neues Passwort.",
+          r.old.map((e) => [e, ageText(e)])),
+        el("p", { class: "muted small" }, "PINs und Notizen werden nicht bewertet. Alles wird nur auf diesem Gerät geprüft."),
+      ]
+    : [el("p", { class: "muted" }, "Noch keine Passwörter zum Prüfen.")];
+
+  $("#security-body").replaceChildren(...body.filter(Boolean));
+  $("#dlg-security").showModal();
+}
 
 // ---------- Generator ----------
 

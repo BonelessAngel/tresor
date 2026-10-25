@@ -1,7 +1,12 @@
-// Verschlüsselung: Schlüssel aus dem Masterpasswort (PBKDF2-SHA256), Tresor mit AES-256-GCM.
+// Verschlüsselung: Schlüssel aus dem Masterpasswort (Argon2id), Tresor mit AES-256-GCM.
 // Das Masterpasswort und der Schlüssel verlassen nie das Gerät.
+// Ältere Tresore mit PBKDF2-SHA256 lassen sich weiter öffnen und werden beim Entsperren umgestellt.
 
-const ITERATIONS = 600000; // OWASP-Empfehlung für PBKDF2-SHA256
+import "./vendor/argon2.umd.min.js"; // hash-wasm (MIT), stellt globalThis.hashwasm bereit
+
+const ITERATIONS = 600000; // PBKDF2 (nur noch für alte Tresore)
+// Argon2id: 64 MiB Speicher, 3 Durchläufe – OWASP-Empfehlung, auf dem iPhone ca. 1 s.
+const ARGON2 = { name: "Argon2id", memory: 65536, iterations: 3, parallelism: 1 };
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -19,7 +24,7 @@ export function randomBytes(n) {
   return crypto.getRandomValues(new Uint8Array(n));
 }
 
-export async function deriveKey(password, salt, iterations = ITERATIONS) {
+async function pbkdf2Key(password, salt, iterations) {
   const base = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
     { name: "PBKDF2", hash: "SHA-256", salt, iterations },
@@ -30,15 +35,38 @@ export async function deriveKey(password, salt, iterations = ITERATIONS) {
   );
 }
 
+async function argon2Key(password, salt, { memory, iterations, parallelism }) {
+  const raw = await globalThis.hashwasm.argon2id({
+    password,
+    salt,
+    memorySize: memory,
+    iterations,
+    parallelism,
+    hashLength: 32,
+    outputType: "binary",
+  });
+  const key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+  raw.fill(0);
+  return key;
+}
+
 // Erzeugt neue KDF-Parameter (neues Salt) und den passenden Schlüssel.
 export async function newKey(password) {
   const salt = randomBytes(16);
-  const key = await deriveKey(password, salt);
-  return { key, kdf: { name: "PBKDF2-SHA256", iterations: ITERATIONS, salt: toB64(salt) } };
+  const key = await argon2Key(password, salt, ARGON2);
+  return { key, kdf: { ...ARGON2, salt: toB64(salt) } };
 }
 
 export async function keyFromKdf(password, kdf) {
-  return deriveKey(password, fromB64(kdf.salt), kdf.iterations);
+  const salt = fromB64(kdf.salt);
+  if (kdf.name === "Argon2id") return argon2Key(password, salt, kdf);
+  if (kdf.name === "PBKDF2-SHA256") return pbkdf2Key(password, salt, kdf.iterations);
+  throw new Error("Unbekanntes Verfahren: " + kdf.name);
+}
+
+// true, wenn der Tresor noch ein älteres/schwächeres Verfahren nutzt.
+export function needsUpgrade(kdf) {
+  return kdf.name !== ARGON2.name || kdf.memory < ARGON2.memory || kdf.iterations < ARGON2.iterations;
 }
 
 export async function encryptJson(key, kdf, data) {
