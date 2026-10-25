@@ -115,6 +115,27 @@ label .row { margin-top: 0.3rem; }
 .btn.block { display: block; width: 100%; margin-top: 0.5rem; }
 #view-body > .btn.block { margin: -0.3rem 0 1rem; }
 .bio-btn { padding: 0.9rem; font-size: 1.05rem; }
+.check-row { display: flex; align-items: center; font-weight: 400; margin: 0.4rem 0 0.8rem; }
+
+.custom-fields { margin-bottom: 0.9rem; }
+.custom-fields .field-label { margin-bottom: 0.3rem; }
+#edit-fields { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+#edit-fields li { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto; gap: 0.35rem; align-items: center; }
+#edit-fields input { margin: 0; }
+#edit-fields .icon-btn { width: 38px; height: 38px; font-size: 0.95rem; }
+#edit-fields .icon-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
+.small-btn { padding: 0.45rem 0.8rem; font-size: 0.88rem; margin-top: 0.4rem; }
+@media (max-width: 600px) {
+  #edit-fields { gap: 0.8rem; }
+  #edit-fields li { grid-template-columns: minmax(0, 1fr) auto auto; }
+  #edit-fields .cf-label { grid-column: 1 / -1; }
+}
+
+.trash-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.trash-list li { display: flex; align-items: center; gap: 0.5rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 0.5rem 0.5rem 0.5rem 0.8rem; }
+.trash-list .grow { min-width: 0; }
+.trash-list .item-title, .trash-list .item-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trash-list .btn { padding: 0.4rem 0.7rem; font-size: 0.85rem; }
 #bio-section { margin: 0.8rem 0 0.5rem; }
 #bio-section p { margin: 0 0 0.3rem; }
 #view-fav { color: #f0b429; }

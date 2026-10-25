@@ -1,7 +1,7 @@
 // Service Worker: macht die App offline nutzbar. Speichert nur die App-Dateien,
 // niemals Tresor-Daten (die liegen verschlüsselt in IndexedDB).
 
-const CACHE = "tresor-v3"; // bei Änderungen an den App-Dateien hochzählen
+const CACHE = "tresor-v4"; // bei Änderungen an den App-Dateien hochzählen
 const FILES = [
   "./",
   "index.html",

@@ -18,6 +18,9 @@ Eine Web-App (PWA), die auf dem PC und auf dem iPhone läuft. Alles bleibt **ver
 - **⭐ Favoriten** stehen immer oben. Danach wird nach „zuletzt benutzt“ oder A–Z sortiert.
 - **🌐** kopiert das Passwort und öffnet gleichzeitig die Webseite.
 - **🛡 Sicherheits-Check:** zeigt schwache, mehrfach benutzte und über ein Jahr alte Passwörter.
+- **Eigene Felder** pro Eintrag (z. B. Kundennummer, Sicherheitsfrage), auf Wunsch versteckt 🔒. Versteckte Werte werden bei der Suche nicht berücksichtigt.
+- **🗑 Papierkorb:** Gelöschte Einträge bleiben 30 Tage wiederherstellbar (⚙️ → Papierkorb). Danach werden sie beim Entsperren endgültig entfernt.
+- **Sofort sperren beim Verlassen** (⚙️ → Sicherheit): Der Tresor sperrt, sobald die App in den Hintergrund geht. Dateiauswahl und Teilen-Menü sind davon ausgenommen.
 
 ### Face ID / Touch ID / Windows Hello
 

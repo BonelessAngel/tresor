@@ -191,10 +191,22 @@ for (const ev of ["pointerdown", "keydown", "input"]) {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     state.hiddenAt = Date.now();
+    // Dateiauswahl und Teilen-Menü lassen die App kurz verschwinden – dabei nicht sperren.
+    if (vault.isUnlocked() && setting("lockOnHide", false) && !state.externalUi) lock();
   } else if (vault.isUnlocked() && Date.now() - state.hiddenAt > autolockMs()) {
     lock();
   }
 });
+
+// Führt fn aus, während ein Systemdialog (Datei, Teilen) offen sein darf, ohne zu sperren.
+async function withExternalUi(fn) {
+  state.externalUi = true;
+  try {
+    return await fn();
+  } finally {
+    setTimeout(() => (state.externalUi = false), 1000);
+  }
+}
 
 // ---------- Start ----------
 
@@ -370,7 +382,8 @@ function matches(e) {
   if (state.folder === "none" && folderName(e.folder)) return false;
   if (!["all", "fav", "none"].includes(state.folder) && e.folder !== state.folder) return false;
   if (!state.search) return true;
-  return [e.title, e.username, e.url, e.notes].some((v) => v?.toLowerCase().includes(state.search));
+  const visibleFields = (e.fields || []).flatMap((f) => (f.secret ? [f.label] : [f.label, f.value]));
+  return [e.title, e.username, e.url, e.notes, ...visibleFields].some((v) => v?.toLowerCase().includes(state.search));
 }
 
 // Favoriten immer oben, danach je nach Auswahl zuletzt benutzt oder alphabetisch.
@@ -524,6 +537,7 @@ function openView(id) {
       t.pass ? field(t.pass, e.password, { secret: true, mono: true, copyAs: t.pass, entryId: id }) : null,
       t.url ? field("Webseite", e.url, { link: url }) : null,
       t.url && url ? el("button", { class: "btn block", onclick: () => openAndCopy(e) }, "🌐 Öffnen + Passwort kopieren") : null,
+      ...(e.fields || []).map((f) => field(f.label || "Feld", f.value, { secret: f.secret, mono: f.secret, copyAs: f.label || "Feld", entryId: id })),
       field("Ordner", folderName(e.folder)),
       notes,
       e.history?.length ? field("Frühere Passwörter", `${e.history.length} gespeichert (zuletzt geändert ${fmt(e.history[0].changed)})`) : null,
@@ -546,11 +560,65 @@ $("#view-edit").addEventListener("click", () => {
 
 $("#view-delete").addEventListener("click", async () => {
   const e = vault.getEntry(state.viewing);
-  if (!e || !confirm(`„${e.title}“ wirklich löschen?`)) return;
+  if (!e) return;
   await vault.deleteEntry(e.id);
   $("#dlg-view").close();
   renderAll();
-  toast("Eintrag gelöscht");
+  toast(`„${e.title}“ liegt jetzt 30 Tage im Papierkorb`);
+});
+
+// ---------- Papierkorb ----------
+
+function openTrash() {
+  renderTrash();
+  $("#dlg-trash").showModal();
+}
+
+function renderTrash() {
+  const items = vault.trash();
+  $("#trash-empty").hidden = !items.length;
+  $("#trash-body").replaceChildren(
+    items.length
+      ? el("ul", { class: "trash-list" },
+          ...items.map((e) =>
+            el("li", {},
+              el("div", { class: "grow" },
+                el("div", { class: "item-title" }, e.title),
+                el("div", { class: "item-sub muted small" }, `wird in ${vault.trashDaysLeft(e)} Tagen endgültig gelöscht`)
+              ),
+              el("button", {
+                class: "btn",
+                onclick: async () => {
+                  await vault.restoreEntry(e.id);
+                  renderTrash();
+                  renderAll();
+                  toast(`„${e.title}“ wiederhergestellt`);
+                },
+              }, "Wiederherstellen"),
+              el("button", {
+                class: "icon-btn",
+                title: "Endgültig löschen",
+                "aria-label": "Endgültig löschen",
+                onclick: async () => {
+                  if (!confirm(`„${e.title}“ endgültig löschen? Das lässt sich nicht rückgängig machen.`)) return;
+                  await vault.purgeEntry(e.id);
+                  renderTrash();
+                },
+              }, "✕")
+            )
+          )
+        )
+      : el("p", { class: "muted" }, "Der Papierkorb ist leer. Gelöschte Einträge bleiben hier 30 Tage, bevor sie endgültig verschwinden.")
+  );
+}
+
+$("#btn-trash").addEventListener("click", openTrash);
+
+$("#trash-empty").addEventListener("click", async () => {
+  if (!confirm("Alle Einträge im Papierkorb endgültig löschen? Das lässt sich nicht rückgängig machen.")) return;
+  await vault.emptyTrash();
+  renderTrash();
+  toast("Papierkorb geleert");
 });
 
 // ---------- Eintrag bearbeiten ----------
@@ -596,6 +664,7 @@ function openEdit(id) {
   $("#edit-password").type = "password";
   $("#edit-url").value = e?.url || "";
   $("#edit-notes").value = e?.notes || "";
+  $("#edit-fields").replaceChildren(...(e?.fields || []).map(customFieldRow));
   const preset = e ? e.folder : ["all", "fav", "none"].includes(state.folder) ? "" : state.folder;
   fillFolderSelect(preset);
   applyEditType();
@@ -603,6 +672,46 @@ function openEdit(id) {
   $("#dlg-edit").showModal();
   if (!e) $("#edit-title").focus();
 }
+
+// Eine Zeile für ein eigenes Feld: Name, Wert, versteckt ja/nein, entfernen.
+function customFieldRow(f = { label: "", value: "", secret: false }) {
+  const value = el("input", { class: "cf-value", placeholder: "Wert", autocomplete: "off", autocapitalize: "off", spellcheck: "false", "aria-label": "Wert" });
+  value.value = f.value;
+  value.type = f.secret ? "password" : "text";
+  const label = el("input", { class: "cf-label", placeholder: "z. B. Kundennummer", "aria-label": "Feldname" });
+  label.value = f.label;
+  const lockBtn = el("button", {
+    class: "icon-btn",
+    type: "button",
+    title: "Versteckt wie ein Passwort",
+    "aria-label": "Versteckt",
+    "aria-pressed": String(Boolean(f.secret)),
+    onclick: () => {
+      const on = lockBtn.getAttribute("aria-pressed") !== "true";
+      lockBtn.setAttribute("aria-pressed", String(on));
+      value.type = on ? "password" : "text";
+    },
+  }, "🔒");
+  const row = el("li", {}, label, value, lockBtn,
+    el("button", { class: "icon-btn", type: "button", title: "Feld entfernen", "aria-label": "Feld entfernen", onclick: () => row.remove() }, "✕"));
+  return row;
+}
+
+function readCustomFields() {
+  return [...document.querySelectorAll("#edit-fields li")]
+    .map((li) => ({
+      label: li.querySelector(".cf-label").value.trim(),
+      value: li.querySelector(".cf-value").value,
+      secret: li.querySelector("[aria-pressed]").getAttribute("aria-pressed") === "true",
+    }))
+    .filter((f) => f.label || f.value);
+}
+
+$("#edit-add-field").addEventListener("click", () => {
+  const row = customFieldRow();
+  $("#edit-fields").append(row);
+  row.querySelector(".cf-label").focus();
+});
 
 $("#edit-password").addEventListener("input", (e) => paintMeter($("#edit-meter"), e.target.value));
 $("#edit-toggle").addEventListener("click", () => {
@@ -644,6 +753,7 @@ $("#edit-form").addEventListener("submit", async (e) => {
     password: t.pass ? $("#edit-password").value : "",
     url: t.url ? $("#edit-url").value.trim() : "",
     notes: $("#edit-notes").value,
+    fields: readCustomFields(),
     folder: $("#edit-folder").value === NEW_FOLDER ? "" : $("#edit-folder").value,
   };
   if (state.editing) fields.id = state.editing;
@@ -790,6 +900,7 @@ function openSettings() {
   renderFolderAdmin();
   renderLastExport();
   $("#autolock").value = String(setting("autolock", 5));
+  $("#lock-on-hide").checked = setting("lockOnHide", false);
   renderBioSection();
   $("#dlg-settings").showModal();
 }
@@ -839,6 +950,8 @@ $("#folder-add-form").addEventListener("submit", async (e) => {
   renderAll();
 });
 
+$("#lock-on-hide").addEventListener("change", (e) => setSetting("lockOnHide", e.target.checked));
+
 $("#autolock").addEventListener("change", (e) => {
   setSetting("autolock", Number(e.target.value));
   resetLockTimer();
@@ -882,7 +995,7 @@ $("#btn-export").addEventListener("click", async () => {
   const mobile = matchMedia("(pointer: coarse)").matches;
   if (mobile && navigator.canShare?.({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: name });
+      await withExternalUi(() => navigator.share({ files: [file], title: name }));
     } catch (err) {
       if (err.name === "AbortError") return;
     }
@@ -923,7 +1036,16 @@ function pickFile() {
   return new Promise((resolve) => {
     const input = $("#file-input");
     input.value = "";
+    // Während der Dateiauswahl nicht sperren; danach (auch bei Abbruch) wieder normal.
+    state.externalUi = true;
+    const done = () => setTimeout(() => (state.externalUi = false), 1000);
+    window.addEventListener("focus", done, { once: true });
+    input.oncancel = () => {
+      done();
+      resolve(null);
+    };
     input.onchange = async () => {
+      done();
       const f = input.files[0];
       if (!f) return resolve(null);
       try {

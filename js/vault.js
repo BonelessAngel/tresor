@@ -27,6 +27,7 @@ export async function unlock(password) {
   data = await decryptJson(k, blob); // wirft bei falschem Passwort
   key = k;
   kdf = blob.kdf;
+  await purgeExpiredTrash();
   return upgradeIfNeeded(password);
 }
 
@@ -106,10 +107,61 @@ export async function markUsed(id) {
   await persist();
 }
 
+// ---- Papierkorb ----
+// Gelöschte Einträge behalten 30 Tage lang ihre Daten und lassen sich wiederherstellen.
+// Danach bleibt nur der Grabstein übrig (für das Zusammenführen zwischen Geräten).
+
+const TRASH_DAYS = 30;
+const TRASH_MS = TRASH_DAYS * 24 * 60 * 60 * 1000;
+
+const tombstone = (id) => ({ id, deleted: true, updated: now() });
+
 export async function deleteEntry(id) {
-  const i = data.entries.findIndex((e) => e.id === id);
-  if (i >= 0) data.entries[i] = { id, deleted: true, updated: now() };
+  const e = getEntry(id);
+  if (!e) return;
+  const t = now();
+  Object.assign(e, { deleted: true, deletedAt: t, updated: t });
   await persist();
+}
+
+// Einträge im Papierkorb (nur solche, die noch Daten haben), neueste zuerst.
+export function trash() {
+  return data.entries.filter((e) => e.deleted && e.title).sort((a, b) => b.deletedAt - a.deletedAt);
+}
+
+export const trashDaysLeft = (e) => Math.max(0, Math.ceil((e.deletedAt + TRASH_MS - now()) / 86400000));
+
+export async function restoreEntry(id) {
+  const e = data.entries.find((x) => x.id === id && x.deleted && x.title);
+  if (!e) return;
+  delete e.deletedAt;
+  Object.assign(e, { deleted: false, updated: now() });
+  if (e.folder && !folders().some((f) => f.id === e.folder)) e.folder = "";
+  await persist();
+}
+
+export async function purgeEntry(id) {
+  const i = data.entries.findIndex((e) => e.id === id && e.deleted);
+  if (i >= 0) data.entries[i] = tombstone(id);
+  await persist();
+}
+
+export async function emptyTrash() {
+  data.entries = data.entries.map((e) => (e.deleted && e.title ? tombstone(e.id) : e));
+  await persist();
+}
+
+// Wird beim Entsperren aufgerufen: räumt Einträge auf, die länger als 30 Tage im Papierkorb liegen.
+async function purgeExpiredTrash() {
+  let changed = false;
+  data.entries = data.entries.map((e) => {
+    if (e.deleted && e.title && now() - (e.deletedAt || e.updated) > TRASH_MS) {
+      changed = true;
+      return { id: e.id, deleted: true, updated: e.updated };
+    }
+    return e;
+  });
+  if (changed) await persist();
 }
 
 // ---- Ordner ----
@@ -180,5 +232,6 @@ export async function adoptBlob(blob, password) {
   key = k;
   kdf = blob.kdf;
   await saveBlob(blob);
+  await purgeExpiredTrash();
   return upgradeIfNeeded(password);
 }

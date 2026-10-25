@@ -128,6 +128,11 @@
         <label>Ordner
           <select id="edit-folder"></select>
         </label>
+        <div class="custom-fields">
+          <div class="field-label">Weitere Felder</div>
+          <ul id="edit-fields"></ul>
+          <button class="btn small-btn" type="button" id="edit-add-field">＋ Feld hinzufügen</button>
+        </div>
         <label>Notizen<textarea id="edit-notes" rows="3"></textarea></label>
       </div>
       <footer class="sheet-foot">
@@ -144,6 +149,18 @@
       <button class="icon-btn" data-close aria-label="Schließen">✕</button>
     </header>
     <div class="sheet-body" id="security-body"></div>
+  </dialog>
+
+  <!-- Papierkorb -->
+  <dialog id="dlg-trash" class="sheet">
+    <header class="sheet-head">
+      <h2>Papierkorb</h2>
+      <button class="icon-btn" data-close aria-label="Schließen">✕</button>
+    </header>
+    <div class="sheet-body" id="trash-body"></div>
+    <footer class="sheet-foot">
+      <button class="btn danger" id="trash-empty">Papierkorb leeren</button>
+    </footer>
   </dialog>
 
   <!-- Generator -->
@@ -196,11 +213,15 @@
           <option value="60">1 Stunde</option>
         </select>
       </label>
+      <label class="check-row"><input type="checkbox" id="lock-on-hide"> Sofort sperren, wenn ich die App verlasse</label>
       <div id="bio-section" hidden>
         <p class="muted small" id="bio-status"></p>
         <button class="btn block" id="btn-bio"></button>
       </div>
       <button class="btn block" id="btn-change-pw">Masterpasswort ändern</button>
+
+      <h3>Papierkorb</h3>
+      <button class="btn block" id="btn-trash">🗑 Papierkorb öffnen</button>
 
       <h3>Geräte abgleichen &amp; Backup</h3>
       <p class="muted small">Die Datei ist mit deinem Masterpasswort verschlüsselt. Beim Laden auf einem anderen Gerät werden die Einträge zusammengeführt – die neuere Version gewinnt.</p>
