@@ -80,6 +80,7 @@ input, select, textarea {
   margin-top: 0.3rem;
   padding: 0.7rem 0.8rem;
   font: inherit;
+  font-size: max(16px, 1rem); /* unter 16px zoomt Safari auf dem iPhone beim Antippen hinein */
   font-weight: 400;
   color: var(--text);
   background: var(--surface-2);
@@ -113,6 +114,9 @@ label .row { margin-top: 0.3rem; }
 .btn.danger { color: var(--danger); }
 .btn.block { display: block; width: 100%; margin-top: 0.5rem; }
 #view-body > .btn.block { margin: -0.3rem 0 1rem; }
+.bio-btn { padding: 0.9rem; font-size: 1.05rem; }
+#bio-section { margin: 0.8rem 0 0.5rem; }
+#bio-section p { margin: 0 0 0.3rem; }
 #view-fav { color: #f0b429; }
 
 .icon-btn {

@@ -4,6 +4,7 @@ import * as vault from "./vault.js";
 import { requestPersist } from "./storage.js";
 import { generate, strength } from "./generator.js";
 import { analyze } from "./security.js";
+import * as bio from "./biometric.js";
 
 const $ = (sel) => document.querySelector(sel);
 const CLIPBOARD_CLEAR_MS = 30000;
@@ -103,6 +104,7 @@ function paintMeter(meterEl, pw, labelEl) {
 }
 
 async function busy(button, label, fn) {
+  if (!button) return fn();
   const old = button.textContent;
   button.disabled = true;
   button.textContent = label;
@@ -171,8 +173,16 @@ function lock() {
   state.viewing = null;
   $("#unlock-pw").value = "";
   $("#unlock-error").textContent = "";
+  showUnlock();
+}
+
+async function showUnlock() {
   show("unlock");
-  $("#unlock-pw").focus();
+  const bioOn = await bio.isEnabled();
+  $("#unlock-bio-box").hidden = !bioOn;
+  $("#unlock-bio").textContent = `🙂 Mit ${bio.deviceLabel()} entsperren`;
+  // Mit Face ID kein Passwortfeld fokussieren, sonst springt am Handy die Tastatur auf.
+  if (!bioOn || finePointer()) $("#unlock-pw").focus();
 }
 
 for (const ev of ["pointerdown", "keydown", "input"]) {
@@ -197,8 +207,7 @@ async function boot() {
     return;
   }
   if (await vault.hasVault()) {
-    show("unlock");
-    $("#unlock-pw").focus();
+    showUnlock();
   } else {
     show("setup");
   }
@@ -271,6 +280,31 @@ $("#unlock-form").addEventListener("submit", async (e) => {
     return;
   }
   $("#unlock-pw").value = "";
+  enterMain();
+  if (upgraded) toast(UPGRADE_MSG);
+});
+
+$("#unlock-bio").addEventListener("click", async (e) => {
+  const button = e.currentTarget;
+  const err = $("#unlock-error");
+  err.textContent = "";
+  let pw;
+  try {
+    pw = await bio.unlockPassword();
+  } catch (ex) {
+    err.textContent = bio.errorMessage(ex);
+    return;
+  }
+  let upgraded;
+  try {
+    upgraded = await busy(button, "Entsperre …", () => vault.unlock(pw));
+  } catch {
+    // Passiert, wenn das Masterpasswort auf einem anderen Weg geändert wurde.
+    await bio.disable();
+    $("#unlock-bio-box").hidden = true;
+    err.textContent = `Das Masterpasswort hat sich geändert. Bitte damit entsperren und ${bio.deviceLabel()} neu einrichten.`;
+    return;
+  }
   enterMain();
   if (upgraded) toast(UPGRADE_MSG);
 });
@@ -756,8 +790,44 @@ function openSettings() {
   renderFolderAdmin();
   renderLastExport();
   $("#autolock").value = String(setting("autolock", 5));
+  renderBioSection();
   $("#dlg-settings").showModal();
 }
+
+async function renderBioSection() {
+  const label = bio.deviceLabel();
+  $("#bio-section").hidden = !(await bio.isSupported());
+  const on = await bio.isEnabled();
+  $("#bio-status").textContent = on
+    ? `✅ Entsperren mit ${label} ist auf diesem Gerät eingeschaltet.`
+    : `Entsperre den Tresor mit ${label}, statt das Masterpasswort zu tippen. Wird pro Gerät eingerichtet.`;
+  $("#btn-bio").textContent = on ? `${label} ausschalten` : `🙂 ${label} einrichten`;
+  $("#btn-bio").dataset.on = on ? "1" : "";
+}
+
+$("#btn-bio").addEventListener("click", async () => {
+  const label = bio.deviceLabel();
+  if ($("#btn-bio").dataset.on) {
+    if (!confirm(`${label} für den Tresor auf diesem Gerät ausschalten?`)) return;
+    await bio.disable();
+    toast(`${label} ausgeschaltet. Den Passkey „Tresor“ kannst du in der Passwörter-App löschen.`);
+    return renderBioSection();
+  }
+  await promptDialog({
+    title: `${label} einrichten`,
+    fields: [{ id: "pw", label: "Zur Bestätigung: Masterpasswort", type: "password", autocomplete: "current-password" }],
+    okLabel: "Einrichten",
+    onSubmit: async ({ pw }) => {
+      try {
+        await bio.enable(pw, vault.checkPassword);
+      } catch (ex) {
+        throw new Error(bio.errorMessage(ex));
+      }
+      toast(`${label} eingerichtet 🎉`);
+    },
+  });
+  renderBioSection();
+});
 
 $("#folder-add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -791,7 +861,14 @@ $("#btn-change-pw").addEventListener("click", () =>
       } catch {
         throw new Error("Das aktuelle Masterpasswort ist falsch.");
       }
-      toast("Masterpasswort geändert – exportiere am besten neu");
+      if (await bio.isEnabled()) {
+        // Das gespeicherte Passwort für Face ID ist jetzt veraltet.
+        await bio.disable();
+        renderBioSection();
+        toast(`Masterpasswort geändert – bitte ${bio.deviceLabel()} neu einrichten und neu exportieren`);
+      } else {
+        toast("Masterpasswort geändert – exportiere am besten neu");
+      }
     },
   })
 );

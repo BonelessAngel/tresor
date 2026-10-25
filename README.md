@@ -19,6 +19,14 @@ Eine Web-App (PWA), die auf dem PC und auf dem iPhone läuft. Alles bleibt **ver
 - **🌐** kopiert das Passwort und öffnet gleichzeitig die Webseite.
 - **🛡 Sicherheits-Check:** zeigt schwache, mehrfach benutzte und über ein Jahr alte Passwörter.
 
+### Face ID / Touch ID / Windows Hello
+
+Unter ⚙️ → Sicherheit → **„Face ID einrichten“**. Das Gerät legt einen Passkey „Tresor“ an. Über die WebAuthn-PRF-Erweiterung liefert er einen geheimen Wert, den es nur nach erfolgreicher Face-ID-Prüfung herausgibt. Damit wird das Masterpasswort verschlüsselt auf diesem Gerät gespeichert.
+
+- Das wird auf jedem Gerät einzeln eingerichtet. Das Masterpasswort funktioniert immer weiter.
+- Nach einer Änderung des Masterpassworts schaltet sich Face ID aus und muss neu eingerichtet werden.
+- Voraussetzung ist iOS/iPadOS 18 oder neuer. Auf Geräten ohne Unterstützung wird die Option ausgeblendet.
+
 ### Tastatur (PC)
 
 | Taste | Aktion |
@@ -65,6 +73,7 @@ Wichtig: Nutze sie immer über das Home-Bildschirm-Icon. Normale Safari-Tabs kö
 | `js/vault.js` | Einträge, Ordner, Export/Import, Zusammenführen |
 | `js/generator.js` | Passwort-Generator, Stärke-Anzeige |
 | `js/security.js` | Sicherheits-Check |
+| `js/biometric.js` | Entsperren mit Face ID / Windows Hello (Passkey + PRF) |
 | `js/vendor/argon2.umd.min.js` | Argon2id aus [hash-wasm](https://www.npmjs.com/package/hash-wasm) 4.12.0 (MIT) |
 | `js/app.js` | Oberfläche |
 | `sw.js` | Offline-Modus (speichert nur App-Dateien) |

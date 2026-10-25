@@ -22,9 +22,13 @@ async function run(mode, fn) {
   });
 }
 
-export const loadBlob = () => run("readonly", (s) => s.get("vault"));
-export const saveBlob = (blob) => run("readwrite", (s) => s.put(blob, "vault"));
-export const deleteBlob = () => run("readwrite", (s) => s.delete("vault"));
+export const getItem = (key) => run("readonly", (s) => s.get(key));
+export const setItem = (key, value) => run("readwrite", (s) => s.put(value, key));
+export const removeItem = (key) => run("readwrite", (s) => s.delete(key));
+
+export const loadBlob = () => getItem("vault");
+export const saveBlob = (blob) => setItem("vault", blob);
+export const deleteBlob = () => removeItem("vault");
 
 // Bittet den Browser, die Daten nicht automatisch zu löschen (wichtig auf dem iPhone).
 export async function requestPersist() {

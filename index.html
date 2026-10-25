@@ -45,6 +45,10 @@
     <div class="card narrow">
       <div class="logo">🔒</div>
       <h1>Tresor gesperrt</h1>
+      <div id="unlock-bio-box" hidden>
+        <button class="btn primary block bio-btn" id="unlock-bio" type="button"></button>
+        <div class="divider"><span>oder mit Masterpasswort</span></div>
+      </div>
       <form id="unlock-form">
         <label>Masterpasswort
           <input type="password" id="unlock-pw" autocomplete="current-password" required autofocus>
@@ -192,6 +196,10 @@
           <option value="60">1 Stunde</option>
         </select>
       </label>
+      <div id="bio-section" hidden>
+        <p class="muted small" id="bio-status"></p>
+        <button class="btn block" id="btn-bio"></button>
+      </div>
       <button class="btn block" id="btn-change-pw">Masterpasswort ändern</button>
 
       <h3>Geräte abgleichen &amp; Backup</h3>

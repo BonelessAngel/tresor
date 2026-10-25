@@ -48,6 +48,16 @@ async function persist() {
   await saveBlob(await encryptJson(key, kdf, data));
 }
 
+export async function checkPassword(password) {
+  const blob = await loadBlob();
+  try {
+    await decryptJson(await keyFromKdf(password, blob.kdf), blob);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function changePassword(oldPassword, newPassword) {
   const blob = await loadBlob();
   await decryptJson(await keyFromKdf(oldPassword, blob.kdf), blob); // prüft altes Passwort
