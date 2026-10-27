@@ -54,7 +54,8 @@ async function argon2Key(password, salt, { memory, iterations, parallelism }) {
 export async function newKey(password) {
   const salt = randomBytes(16);
   const key = await argon2Key(password, salt, ARGON2);
-  return { key, kdf: { ...ARGON2, salt: toB64(salt) } };
+  // "changed" zeigt beim Sync, welcher Schlüssel (Masterpasswort) der neuere ist.
+  return { key, kdf: { ...ARGON2, salt: toB64(salt), changed: Date.now() } };
 }
 
 export async function keyFromKdf(password, kdf) {

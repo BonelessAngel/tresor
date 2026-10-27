@@ -8,6 +8,10 @@ import { loadBlob, saveBlob } from "./storage.js";
 let key = null;
 let kdf = null;
 let data = null;
+let onChange = null;
+
+// Wird nach jeder inhaltlichen Änderung aufgerufen (z. B. um den Sync anzustoßen).
+export const setOnChange = (fn) => (onChange = fn);
 
 const now = () => Date.now();
 const uid = () => crypto.randomUUID();
@@ -45,8 +49,9 @@ export function lock() {
   data = null;
 }
 
-async function persist() {
+async function persist({ silent = false } = {}) {
   await saveBlob(await encryptJson(key, kdf, data));
+  if (!silent) onChange?.();
 }
 
 export async function checkPassword(password) {
@@ -104,7 +109,7 @@ export async function markUsed(id) {
   const e = getEntry(id);
   if (!e) return;
   e.lastUsed = now();
-  await persist();
+  await persist({ silent: true }); // nur fürs Sortieren auf diesem Gerät, kein Sync nötig
 }
 
 // ---- Papierkorb ----
@@ -222,6 +227,55 @@ export async function importBlob(blob, password) {
   data.folders = f.list;
   await persist();
   return e.changed + f.changed;
+}
+
+// ---- Sync ----
+
+export const syncCode = () => data?.sync?.code || null;
+
+export async function setSyncCode(code) {
+  if (code) data.sync = { code };
+  else delete data.sync;
+  await persist({ silent: true });
+}
+
+export class NeedPassword extends Error {}
+
+const sameKdf = (a, b) =>
+  Boolean(a && b) && a.name === b.name && a.salt === b.salt && a.iterations === b.iterations && a.memory === b.memory;
+
+// Führt den Stand vom Server ein. Normalerweise nutzen alle Geräte denselben Schlüssel, dann
+// geht das ohne Passwort. Wurde das Masterpasswort irgendwo geändert, wird es einmal gebraucht
+// (NeedPassword); der neuere Schlüssel gewinnt, beim Koppeln (adopt) immer der vom Server.
+// Ergebnis: changed = lokal hat sich etwas geändert, ahead = lokal ist Neueres -> hochladen.
+export async function mergeRemote(blob, { password, adopt = false } = {}) {
+  if (!key) throw new Error("locked");
+  let other;
+  let remoteKey = null;
+  if (sameKdf(blob.kdf, kdf)) {
+    other = await decryptJson(key, blob);
+  } else {
+    if (!password) throw new NeedPassword();
+    remoteKey = await keyFromKdf(password, blob.kdf);
+    other = await decryptJson(remoteKey, blob); // wirft bei falschem Passwort
+  }
+  const theirEntries = other.entries || [];
+  const theirFolders = other.folders || [];
+  const ahead = mergeList(theirEntries, data.entries).changed + mergeList(theirFolders, data.folders).changed;
+  const e = mergeList(data.entries, theirEntries);
+  const f = mergeList(data.folders, theirFolders);
+  data.entries = e.list;
+  data.folders = f.list;
+
+  let keyChanged = false;
+  if (remoteKey && (adopt || (blob.kdf.changed || 0) > (kdf.changed || 0))) {
+    key = remoteKey;
+    kdf = blob.kdf;
+    keyChanged = true;
+  }
+  const changed = e.changed + f.changed;
+  if (changed || keyChanged) await persist({ silent: true });
+  return { changed, keyChanged, ahead: ahead > 0 || !sameKdf(blob.kdf, kdf) };
 }
 
 // Für Erst-Import auf einem neuen Gerät: Datei wird direkt zum Tresor.

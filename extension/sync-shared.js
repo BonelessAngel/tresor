@@ -4,7 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.join(__dirname, "..");
-const files = ["js/crypto.js", "js/vendor/argon2.umd.min.js", "js/vendor/hash-wasm-LICENSE.txt"];
+const files = ["js/crypto.js", "js/sync-core.js", "js/vendor/argon2.umd.min.js", "js/vendor/hash-wasm-LICENSE.txt"];
 
 for (const f of files) {
   const target = path.join(__dirname, "lib", path.relative("js", f));

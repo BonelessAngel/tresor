@@ -14,6 +14,22 @@
     <p class="muted">Die Erweiterung nutzt eine Kopie deines Tresors. Exportiere ihn in der Tresor-App (⚙️ → Exportieren) und lade die Datei hier. Sie bleibt verschlüsselt auf diesem PC.</p>
 
     <section class="card">
+      <h2>☁️ Geräte-Sync (empfohlen)</h2>
+      <div id="sync-off">
+        <p class="muted small">Mit dem Sync-Code aus der App (⚙️ → Geräte-Sync → Gerät hinzufügen) holt sich die Erweiterung automatisch immer den neuesten Stand.</p>
+        <form id="sync-form" class="row">
+          <input id="sync-code" placeholder="XXXX-XXXX-XXXX-…" autocomplete="off" spellcheck="false" aria-label="Sync-Code">
+          <button class="btn primary" type="submit">Verbinden</button>
+        </form>
+      </div>
+      <div id="sync-on" hidden>
+        <p class="ok">✅ Mit Sync verbunden – die Erweiterung aktualisiert sich bei jedem Öffnen.</p>
+        <button class="btn" id="btn-sync-off">Sync trennen</button>
+      </div>
+      <p class="error" id="sync-error"></p>
+    </section>
+
+    <section class="card" id="file-card">
       <h2>Tresor-Datei</h2>
       <p id="status" class="muted"></p>
       <button class="btn primary" id="btn-import">Tresor-Datei laden …</button>

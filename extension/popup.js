@@ -1,7 +1,7 @@
 // Popup: entsperren, passende Logins anzeigen, ausfüllen oder kopieren.
 
-import { keyFromKdf, decryptJson } from "./lib/crypto.js";
-import { hostOf, matchesHost, getSession, setSession, clearSession, scheduleLock, fillPage } from "./lib/shared.js";
+import { decryptJson, toB64, fromB64 } from "./lib/crypto.js"; // lädt auch Argon2 (globalThis.hashwasm)
+import { hostOf, matchesHost, getSession, setSession, clearSession, scheduleLock, fillPage, pullVault } from "./lib/shared.js";
 
 const $ = (sel) => document.querySelector(sel);
 const state = { tab: null, tabHost: "", entries: [], visible: [], sel: 0 };
@@ -30,16 +30,57 @@ function show(view) {
   $("#btn-lock").hidden = view !== "list";
 }
 
+// ---------- Schlüssel ----------
+
+// Leitet den Tresor-Schlüssel als Bytes ab (gleiches Verfahren wie in der App), damit er
+// für die Dauer der Entsperrung im Arbeitsspeicher bleiben kann.
+async function rawKey(password, kdf) {
+  const salt = fromB64(kdf.salt);
+  if (kdf.name === "Argon2id") {
+    return globalThis.hashwasm.argon2id({
+      password,
+      salt,
+      memorySize: kdf.memory,
+      iterations: kdf.iterations,
+      parallelism: kdf.parallelism,
+      hashLength: 32,
+      outputType: "binary",
+    });
+  }
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: kdf.iterations }, base, 256));
+}
+
+const aesKey = (raw) => crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
+
+// Nur was zum Ausfüllen und Kopieren nötig ist, kommt in den Arbeitsspeicher.
+const loginEntries = (data) =>
+  (data.entries || [])
+    .filter((x) => !x.deleted && (x.type || "login") !== "note")
+    .map(({ id, title, username, password, url, type, favorite, lastUsed }) => ({ id, title, username, password, url, type: type || "login", favorite, lastUsed }));
+
 // ---------- Start ----------
+
+// Neuester Stand vom Sync-Server; ohne Netz geht es mit der gespeicherten Kopie weiter.
+async function pullWithTimeout() {
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 4000));
+  try {
+    return await Promise.race([pullVault(), timeout]);
+  } catch {
+    return null;
+  }
+}
 
 async function init() {
   [state.tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   state.tabHost = hostOf(state.tab?.url);
 
-  const { vault } = await chrome.storage.local.get("vault");
+  const pulled = await pullWithTimeout();
+  const { vault } = pulled?.vault ? pulled : await chrome.storage.local.get("vault");
   if (!vault) return show("empty");
 
-  const session = await getSession();
+  let session = await getSession();
+  if (session && pulled?.updated) session = await refreshSession(session, vault);
   if (!session) {
     show("locked");
     $("#unlock-pw").focus();
@@ -48,6 +89,20 @@ async function init() {
   await scheduleLock(); // Benutzung verlängert die Auto-Sperre
   state.entries = session.entries;
   showList();
+}
+
+// Neuer Stand vom Server, während entsperrt: mit dem gemerkten Schlüssel lesen.
+// Wurde das Masterpasswort geändert, passt der Schlüssel nicht mehr – dann neu entsperren.
+async function refreshSession(session, vault) {
+  if (session.salt !== vault.blob.kdf.salt) {
+    await clearSession();
+    $("#unlock-error").textContent = "Das Masterpasswort wurde geändert – bitte mit dem neuen entsperren.";
+    return null;
+  }
+  const data = await decryptJson(await aesKey(fromB64(session.key)), vault.blob);
+  const entries = loginEntries(data);
+  await setSession(entries, session.key, session.salt);
+  return { ...session, entries };
 }
 
 $("#btn-options").addEventListener("click", () => chrome.runtime.openOptionsPage());
@@ -70,12 +125,11 @@ $("#unlock-form").addEventListener("submit", async (e) => {
   button.textContent = "Entsperre …";
   try {
     const { vault } = await chrome.storage.local.get("vault");
-    const data = await decryptJson(await keyFromKdf($("#unlock-pw").value, vault.blob.kdf), vault.blob);
-    // Nur was zum Ausfüllen und Kopieren nötig ist, kommt in den Arbeitsspeicher.
-    state.entries = (data.entries || [])
-      .filter((x) => !x.deleted && (x.type || "login") !== "note")
-      .map(({ id, title, username, password, url, type, favorite, lastUsed }) => ({ id, title, username, password, url, type: type || "login", favorite, lastUsed }));
-    await setSession(state.entries);
+    const raw = await rawKey($("#unlock-pw").value, vault.blob.kdf);
+    const data = await decryptJson(await aesKey(raw), vault.blob);
+    state.entries = loginEntries(data);
+    await setSession(state.entries, toB64(raw), vault.blob.kdf.salt);
+    raw.fill(0);
     $("#unlock-pw").value = "";
     showList();
   } catch {

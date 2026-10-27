@@ -115,6 +115,26 @@ label .row { margin-top: 0.3rem; }
 .btn.block { display: block; width: 100%; margin-top: 0.5rem; }
 #view-body > .btn.block { margin: -0.3rem 0 1rem; }
 .bio-btn { padding: 0.9rem; font-size: 1.05rem; }
+.code-box {
+  font: 600 1.05rem ui-monospace, "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.04em;
+  text-align: center;
+  word-break: break-all;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem;
+  margin: 0.6rem 0;
+  user-select: all;
+}
+.qr { display: grid; place-items: center; margin: 0.6rem 0; }
+.qr svg { width: 200px; height: 200px; background: #fff; border-radius: 10px; padding: 10px; }
+#sync-status { margin: 0 0 0.5rem; }
+.sync-more { margin-top: 0.6rem; }
+.sync-more summary { cursor: pointer; color: var(--muted); font-size: 0.88rem; }
+#btn-sync[data-state="syncing"] { animation: pulse 1s ease-in-out infinite; }
+#btn-sync[data-state="error"], #btn-sync[data-state="password"] { border-color: var(--danger); }
+@keyframes pulse { 50% { opacity: 0.4; } }
 .check-row { display: flex; align-items: center; font-weight: 400; margin: 0.4rem 0 0.8rem; }
 
 .custom-fields { margin-bottom: 0.9rem; }

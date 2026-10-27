@@ -7,16 +7,29 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Tresor">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:8787 https://tresor-sync.REPLACE_ME.workers.dev; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>Tresor</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-180.png">
   <link rel="stylesheet" href="styles.css">
+  <script src="js/vendor/qrcode.js"></script>
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
+  <!-- Sync-Link in Safari geöffnet (iPhone-Kamera): Code in die Home-Bildschirm-App bringen -->
+  <section id="view-handoff" class="view center" hidden>
+    <div class="card narrow">
+      <div class="logo">☁️</div>
+      <h1>Sync-Code empfangen</h1>
+      <p class="muted">Kopiere den Code und öffne dann den Tresor über das Icon auf deinem Home-Bildschirm. Dort unter „Mit Sync-Code verbinden“ (bzw. ⚙️ → Geräte-Sync) einfügen.</p>
+      <p class="code-box" id="handoff-code"></p>
+      <button class="btn primary block" id="handoff-copy">Code kopieren</button>
+      <button class="btn block" id="handoff-here">Stattdessen hier im Browser verwenden</button>
+    </div>
+  </section>
+
   <!-- Ersteinrichtung -->
   <section id="view-setup" class="view center" hidden>
     <div class="card narrow">
@@ -36,6 +49,7 @@
         <button class="btn primary block" type="submit">Tresor anlegen</button>
       </form>
       <div class="divider"><span>oder</span></div>
+      <button class="btn block" id="setup-sync">☁️ Mit Sync-Code verbinden</button>
       <button class="btn block" id="setup-import">Vorhandene Tresor-Datei laden</button>
     </div>
   </section>
@@ -64,6 +78,7 @@
     <header class="topbar">
       <h1 class="brand">🔐 Tresor</h1>
       <div class="actions">
+        <button class="icon-btn" id="btn-sync" title="Sync" aria-label="Sync" hidden>☁️</button>
         <button class="icon-btn badge-host" id="btn-security" title="Sicherheits-Check" aria-label="Sicherheits-Check">🛡<span class="badge" id="security-badge" hidden></span></button>
         <button class="icon-btn" id="btn-generator" title="Passwort-Generator" aria-label="Passwort-Generator">🎲</button>
         <button class="icon-btn" id="btn-settings" title="Einstellungen" aria-label="Einstellungen">⚙️</button>
@@ -219,6 +234,32 @@
         <button class="btn block" id="btn-bio"></button>
       </div>
       <button class="btn block" id="btn-change-pw">Masterpasswort ändern</button>
+
+      <h3>Geräte-Sync</h3>
+      <div id="sync-off">
+        <p class="muted small">Gleicht deinen Tresor automatisch zwischen allen Geräten ab. Der Server sieht nur verschlüsselte Daten.</p>
+        <button class="btn primary block" id="btn-sync-enable">☁️ Sync einschalten</button>
+        <button class="btn block" id="btn-sync-join">Mit vorhandenem Sync-Code verbinden</button>
+      </div>
+      <div id="sync-on" hidden>
+        <p class="small" id="sync-status"></p>
+        <div class="row">
+          <button class="btn grow" id="btn-sync-now">Jetzt abgleichen</button>
+          <button class="btn grow" id="btn-sync-show">Gerät hinzufügen</button>
+        </div>
+        <div id="sync-pair" hidden>
+          <p class="muted small">Scanne den QR-Code mit der Kamera des anderen Geräts oder gib dort den Code ein (⚙️ → Geräte-Sync bzw. beim ersten Start „Mit Sync-Code verbinden“). <strong>Behandle den Code wie einen Schlüssel</strong> – zusammen mit dem Masterpasswort öffnet er deinen Tresor.</p>
+          <div class="qr" id="sync-qr"></div>
+          <p class="code-box" id="sync-code"></p>
+          <button class="btn block" id="btn-sync-copy">Code kopieren</button>
+        </div>
+        <details class="sync-more">
+          <summary>Weitere Optionen</summary>
+          <button class="btn block" id="btn-sync-force">Server-Stand mit diesem Gerät ersetzen</button>
+          <button class="btn block" id="btn-sync-disable">Sync auf diesem Gerät ausschalten</button>
+          <button class="btn block danger" id="btn-sync-delete">Daten vom Server löschen</button>
+        </details>
+      </div>
 
       <h3>Papierkorb</h3>
       <button class="btn block" id="btn-trash">🗑 Papierkorb öffnen</button>

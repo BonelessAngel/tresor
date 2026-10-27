@@ -5,6 +5,8 @@ import { requestPersist } from "./storage.js";
 import { generate, strength } from "./generator.js";
 import { analyze } from "./security.js";
 import * as bio from "./biometric.js";
+import * as sync from "./sync.js";
+import { APP_URL } from "./config.js";
 
 const $ = (sel) => document.querySelector(sel);
 const CLIPBOARD_CLEAR_MS = 30000;
@@ -195,6 +197,8 @@ document.addEventListener("visibilitychange", () => {
     if (vault.isUnlocked() && setting("lockOnHide", false) && !state.externalUi) lock();
   } else if (vault.isUnlocked() && Date.now() - state.hiddenAt > autolockMs()) {
     lock();
+  } else if (vault.isUnlocked()) {
+    sync.syncNow(); // zurück in der App: Änderungen anderer Geräte holen
   }
 });
 
@@ -218,12 +222,40 @@ async function boot() {
     document.body.textContent = "Diese App braucht eine sichere Verbindung (https oder localhost).";
     return;
   }
+  state.pendingCode = takeSyncCodeFromUrl();
+  // iPhone/iPad: Die Kamera öffnet Links in Safari, nicht in der Home-Bildschirm-App.
+  // Dann den Code zum Kopieren anzeigen, statt hier einen zweiten Tresor anzulegen.
+  if (state.pendingCode && isAppleMobile() && !isStandalone()) {
+    $("#handoff-code").textContent = state.pendingCode;
+    show("handoff");
+    return;
+  }
+  await startNormally();
+}
+
+async function startNormally() {
   if (await vault.hasVault()) {
     showUnlock();
   } else {
     show("setup");
+    if (state.pendingCode) joinWithCode(state.pendingCode);
   }
 }
+
+function takeSyncCodeFromUrl() {
+  const m = location.hash.match(/sync=([A-Za-z0-9-]+)/);
+  if (!m) return null;
+  history.replaceState(null, "", location.pathname + location.search); // Code nicht im Verlauf lassen
+  return sync.isValidCode(m[1]) ? sync.formatCode(m[1]) : null;
+}
+
+const isAppleMobile = () => /iPhone|iPad/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const isStandalone = () => navigator.standalone === true || matchMedia("(display-mode: standalone)").matches;
+
+$("#handoff-copy").addEventListener("click", async () => {
+  if (await writeClipboard($("#handoff-code").textContent)) toast("Code kopiert – jetzt den Tresor über das Home-Bildschirm-Icon öffnen");
+});
+$("#handoff-here").addEventListener("click", startNormally);
 
 function enterMain() {
   requestPersist();
@@ -233,6 +265,14 @@ function enterMain() {
   renderAll();
   resetLockTimer();
   if (finePointer()) $("#search").focus(); // am Handy würde sonst die Tastatur aufgehen
+  paintSyncButton();
+  sync.syncNow();
+  // Über einen Sync-Link geöffnet, aber hier schon ein Tresor: mit dem Sync verbinden?
+  if (state.pendingCode && !vault.syncCode()) {
+    const code = state.pendingCode;
+    state.pendingCode = null;
+    joinExisting(code);
+  }
 }
 
 const UPGRADE_MSG = "Tresor auf stärkere Verschlüsselung (Argon2id) umgestellt – bitte neu exportieren";
@@ -902,6 +942,7 @@ function openSettings() {
   $("#autolock").value = String(setting("autolock", 5));
   $("#lock-on-hide").checked = setting("lockOnHide", false);
   renderBioSection();
+  renderSyncSection();
   $("#dlg-settings").showModal();
 }
 
@@ -969,11 +1010,11 @@ $("#btn-change-pw").addEventListener("click", () =>
     onSubmit: async ({ old, new1, new2 }) => {
       if (new1.length < 10) throw new Error("Bitte mindestens 10 Zeichen.");
       if (new1 !== new2) throw new Error("Die neuen Passwörter stimmen nicht überein.");
-      try {
-        await vault.changePassword(old, new1);
-      } catch {
-        throw new Error("Das aktuelle Masterpasswort ist falsch.");
-      }
+      if (!(await vault.checkPassword(old))) throw new Error("Das aktuelle Masterpasswort ist falsch.");
+      if (vault.syncCode()) await sync.syncNow(); // vorher noch den neuesten Stand holen
+      await vault.changePassword(old, new1);
+      // Der Server hat noch den alten Schlüssel: mit dem alten Passwort lesen, dann neu hochladen.
+      if (vault.syncCode()) await sync.syncNow({ password: old });
       if (await bio.isEnabled()) {
         // Das gespeicherte Passwort für Face ID ist jetzt veraltet.
         await bio.disable();
@@ -1030,6 +1071,221 @@ $("#btn-import").addEventListener("click", async () => {
   });
 });
 
+// ---------- Geräte-Sync ----------
+
+const SYNC_ICONS = { syncing: "🔄", ok: "☁️", offline: "📴", password: "🔑", error: "⚠️" };
+
+function describeSync(s) {
+  if (s.state === "ok") return `Abgeglichen um ${new Date(s.at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`;
+  if (s.state === "syncing") return "Gleiche ab …";
+  return s.message || "Sync aus";
+}
+
+function paintSyncButton() {
+  const s = sync.status;
+  const btn = $("#btn-sync");
+  btn.hidden = !vault.isUnlocked() || !vault.syncCode();
+  btn.textContent = SYNC_ICONS[s.state] || "☁️";
+  btn.dataset.state = s.state;
+  btn.title = "Sync: " + describeSync(s);
+}
+
+sync.onStatus((s) => {
+  paintSyncButton();
+  if (!$("#dlg-settings").open) return;
+  $("#sync-status").textContent = (SYNC_ICONS[s.state] || "") + " " + describeSync(s);
+});
+
+// Ein anderes Gerät hat etwas geändert: Anzeige auffrischen.
+sync.setOnRemoteChange(async ({ keyChanged }) => {
+  if (!vault.isUnlocked()) return;
+  renderAll();
+  if ($("#dlg-trash").open) renderTrash();
+  if (keyChanged) await afterKeyChange();
+});
+
+// Neues Masterpasswort von einem anderen Gerät übernommen: Face ID kennt noch das alte.
+async function afterKeyChange() {
+  if (await bio.isEnabled()) {
+    await bio.disable();
+    toast(`Neues Masterpasswort übernommen – bitte ${bio.deviceLabel()} neu einrichten`);
+  }
+}
+
+// Änderungen kurz sammeln und dann abgleichen.
+let syncTimer;
+vault.setOnChange(() => {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => sync.syncNow(), 1500);
+});
+setInterval(() => {
+  if (vault.isUnlocked() && !document.hidden) sync.syncNow();
+}, 60000);
+window.addEventListener("online", () => vault.isUnlocked() && sync.syncNow());
+
+$("#btn-sync").addEventListener("click", async () => {
+  if (sync.status.state === "password") return askSyncPassword();
+  await sync.syncNow();
+  toast(describeSync(sync.status));
+});
+
+function askSyncPassword() {
+  return promptDialog({
+    title: "Masterpasswort nötig",
+    fields: [{ id: "pw", label: "Das Masterpasswort wurde auf einem anderen Gerät geändert. Gib das neue ein:", type: "password", autocomplete: "current-password" }],
+    okLabel: "Abgleichen",
+    onSubmit: async ({ pw }) => {
+      await sync.syncNow({ password: pw });
+      if (sync.status.state !== "ok") throw new Error(describeSync(sync.status));
+      toast("Abgeglichen – ab jetzt gilt das neue Masterpasswort");
+    },
+  });
+}
+
+function renderSyncSection() {
+  const on = Boolean(vault.syncCode());
+  $("#sync-off").hidden = on;
+  $("#sync-on").hidden = !on;
+  $("#sync-pair").hidden = true;
+  $("#btn-sync-show").textContent = "Gerät hinzufügen";
+  $("#sync-status").textContent = (SYNC_ICONS[sync.status.state] || "") + " " + describeSync(sync.status);
+}
+
+// QR-Code als SVG, ohne Inline-Styles (wegen der Content-Security-Policy).
+function qrSvg(text) {
+  const qr = qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  const n = qr.getModuleCount();
+  let d = "";
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${n} ${n}`);
+  svg.setAttribute("shape-rendering", "crispEdges");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "QR-Code zum Koppeln");
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", d);
+  path.setAttribute("fill", "#000");
+  svg.append(path);
+  return svg;
+}
+
+$("#btn-sync-enable").addEventListener("click", async () => {
+  await vault.setSyncCode(sync.newCode());
+  renderSyncSection();
+  await sync.syncNow();
+  showPairing();
+  toast(sync.status.state === "ok" ? "Sync eingeschaltet ☁️" : describeSync(sync.status));
+});
+
+function showPairing() {
+  const code = vault.syncCode();
+  $("#sync-code").textContent = code;
+  $("#sync-qr").replaceChildren(qrSvg(`${APP_URL}#sync=${sync.normalizeCode(code)}`));
+  $("#sync-pair").hidden = false;
+  $("#btn-sync-show").textContent = "Code verbergen";
+}
+
+$("#btn-sync-show").addEventListener("click", () => {
+  if ($("#sync-pair").hidden) showPairing();
+  else renderSyncSection();
+});
+$("#btn-sync-copy").addEventListener("click", () => copy(vault.syncCode(), "Sync-Code"));
+$("#btn-sync-now").addEventListener("click", () => sync.syncNow());
+$("#btn-sync-join").addEventListener("click", () => joinExisting());
+$("#setup-sync").addEventListener("click", () => joinWithCode());
+
+$("#btn-sync-force").addEventListener("click", async () => {
+  if (!confirm("Den Stand auf dem Server durch den Stand dieses Geräts ersetzen? Änderungen, die nur auf dem Server liegen, gehen verloren.")) return;
+  try {
+    await sync.forceUpload();
+    toast("Server-Stand ersetzt");
+  } catch (err) {
+    toast(err.message);
+  }
+});
+
+$("#btn-sync-disable").addEventListener("click", async () => {
+  if (!confirm("Sync auf diesem Gerät ausschalten? Deine Einträge bleiben hier erhalten.")) return;
+  await vault.setSyncCode(null);
+  await sync.syncNow(); // setzt den Status auf "aus"
+  renderSyncSection();
+  paintSyncButton();
+});
+
+$("#btn-sync-delete").addEventListener("click", async () => {
+  if (!confirm("Die verschlüsselte Kopie vom Server löschen und Sync hier ausschalten?\n\nSchalte Sync auch auf den anderen Geräten aus – sonst laden sie den Tresor wieder hoch.")) return;
+  try {
+    await sync.deleteRemote(vault.syncCode());
+  } catch {
+    return toast("Server nicht erreichbar");
+  }
+  await vault.setSyncCode(null);
+  await sync.syncNow();
+  renderSyncSection();
+  paintSyncButton();
+  toast("Server-Kopie gelöscht");
+});
+
+const codeField = (value) => ({ id: "code", label: "Sync-Code", type: "text", value: value || "", placeholder: "XXXX-XXXX-XXXX-…" });
+
+// Neues Gerät ohne Tresor: Tresor vom Server holen.
+function joinWithCode(prefill) {
+  return promptDialog({
+    title: "Mit Sync-Code verbinden",
+    fields: [codeField(prefill), { id: "pw", label: "Masterpasswort", type: "password", autocomplete: "current-password" }],
+    okLabel: "Verbinden",
+    onSubmit: async ({ code, pw }) => {
+      if (!sync.isValidCode(code)) throw new Error("Der Code hat nicht das richtige Format (32 Zeichen).");
+      const remote = await sync.fetchRemote(code).catch((err) => {
+        throw new Error(err instanceof sync.SyncError ? err.message : "Server nicht erreichbar.");
+      });
+      if (!remote) throw new Error("Zu diesem Code gibt es noch keinen Tresor. Ist Sync auf dem anderen Gerät eingeschaltet?");
+      try {
+        await vault.adoptBlob(remote.blob, pw);
+      } catch {
+        throw new Error("Falsches Masterpasswort.");
+      }
+      if (!vault.syncCode()) await vault.setSyncCode(sync.formatCode(code));
+      state.pendingCode = null;
+      enterMain();
+      toast(`Verbunden – ${vault.entries().length} Einträge geladen ☁️`);
+    },
+  });
+}
+
+// Gerät mit eigenem Tresor: mit dem Sync-Tresor zusammenführen.
+function joinExisting(prefill) {
+  return promptDialog({
+    title: "Mit Sync verbinden",
+    fields: [codeField(prefill), { id: "pw", label: "Masterpasswort des Sync-Tresors", type: "password", autocomplete: "current-password" }],
+    okLabel: "Verbinden",
+    onSubmit: async ({ code, pw }) => {
+      if (!sync.isValidCode(code)) throw new Error("Der Code hat nicht das richtige Format (32 Zeichen).");
+      const remote = await sync.fetchRemote(code).catch((err) => {
+        throw new Error(err instanceof sync.SyncError ? err.message : "Server nicht erreichbar.");
+      });
+      let keyChanged = false;
+      if (remote) {
+        try {
+          // Die Einträge beider Tresore werden zusammengeführt, der Schlüssel vom Server übernommen.
+          ({ keyChanged } = await vault.mergeRemote(remote.blob, { password: pw, adopt: true }));
+        } catch {
+          throw new Error("Das Masterpasswort passt nicht zum Tresor auf dem Server.");
+        }
+      }
+      await vault.setSyncCode(sync.formatCode(code));
+      await sync.syncNow();
+      renderAll();
+      renderSyncSection();
+      if (keyChanged) await afterKeyChange();
+      toast("Mit Sync verbunden ☁️");
+    },
+  });
+}
+
 // ---------- Datei wählen ----------
 
 function pickFile() {
@@ -1071,6 +1327,9 @@ function promptDialog({ title, fields, okLabel, onSubmit }) {
   $("#prompt-fields").replaceChildren(
     ...fields.flatMap((f) => {
       const input = el("input", { type: f.type, autocomplete: f.autocomplete || "off", required: "" });
+      if (f.value) input.value = f.value;
+      if (f.placeholder) input.placeholder = f.placeholder;
+      if (f.type === "text") input.autocapitalize = "characters";
       inputs[f.id] = input;
       const nodes = [el("label", {}, f.label, input)];
       if (f.meter) {

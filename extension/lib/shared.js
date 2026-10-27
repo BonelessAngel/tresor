@@ -1,6 +1,29 @@
 // Gemeinsame Hilfen für Popup und Hintergrund-Skript der Erweiterung.
 
+import { fetchRemote } from "./sync-core.js";
+
 const DEFAULT_AUTOLOCK_MIN = 15;
+const SYNC_URL = "https://tresor-sync.REPLACE_ME.workers.dev";
+
+// Zum lokalen Testen lässt sich die Server-Adresse in chrome.storage.local.syncUrl überschreiben.
+async function syncUrl() {
+  const { syncUrl } = await chrome.storage.local.get("syncUrl");
+  return syncUrl || SYNC_URL;
+}
+
+export const fetchSyncedVault = async (code) => fetchRemote(await syncUrl(), code);
+
+// Holt bei eingeschaltetem Sync den neuesten Tresor vom Server.
+// Gibt den gespeicherten Tresor zurück und ob er sich geändert hat.
+export async function pullVault() {
+  const { vault, syncCode } = await chrome.storage.local.get(["vault", "syncCode"]);
+  if (!syncCode) return { vault, updated: false };
+  const remote = await fetchSyncedVault(syncCode);
+  if (!remote || remote.version === vault?.version) return { vault, updated: false };
+  const next = { blob: remote.blob, version: remote.version, fileName: "Sync", importedAt: Date.now() };
+  await chrome.storage.local.set({ vault: next });
+  return { vault: next, updated: true };
+}
 
 export function hostOf(url) {
   if (!url) return "";
@@ -27,8 +50,9 @@ export async function getSession() {
   return session || null;
 }
 
-export async function setSession(entries) {
-  await chrome.storage.session.set({ session: { entries, unlockedAt: Date.now() } });
+// key: der Tresor-Schlüssel (Base64), damit neue Sync-Stände ohne Passwort gelesen werden können.
+export async function setSession(entries, key, salt) {
+  await chrome.storage.session.set({ session: { entries, key, salt, unlockedAt: Date.now() } });
   await scheduleLock();
 }
 

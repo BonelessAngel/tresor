@@ -1,0 +1,17 @@
+{
+  "name": "tresor-sync",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "migrate:local": "wrangler d1 migrations apply tresor-sync --local",
+    "migrate:remote": "wrangler d1 migrations apply tresor-sync --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.153.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "workerd@1.20261023.1": true
+  }
+}
