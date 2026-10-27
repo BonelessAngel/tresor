@@ -41,6 +41,25 @@ Unter ⚙️ → Sicherheit → **„Face ID einrichten“**. Das Gerät legt ei
 | `Strg+Enter` | Webseite öffnen + Passwort kopieren |
 | `Esc` | Suche leeren |
 
+## ☁️ Geräte-Sync
+
+Gleicht den Tresor automatisch zwischen allen Geräten ab, also beim Entsperren, nach Änderungen, beim Zurückkehren in die App und jede Minute.
+
+- **Einschalten:** ⚙️ → Geräte-Sync → „Sync einschalten“
+- **Weiteres Gerät:** ⚙️ → Geräte-Sync → „Gerät hinzufügen“ zeigt QR-Code und Sync-Code. Auf dem neuen Gerät „Mit Sync-Code verbinden“ wählen, beim iPhone geht auch der QR-Code mit der Kamera.
+- **Erweiterung:** Den Sync-Code auf der Einstellungsseite der Erweiterung eintragen. Sie holt sich dann bei jedem Öffnen den neuesten Stand.
+- Der Server (`sync-server/`, Cloudflare Worker + D1) speichert nur den **verschlüsselten** Tresor. Vom Zugangs-Token liegt dort nur ein Hash.
+- Gleichzeitige Änderungen werden zusammengeführt (Versionsnummer + „neuere Änderung gewinnt“ pro Eintrag).
+- Wird das Masterpasswort auf einem Gerät geändert, fragen die anderen einmal nach dem neuen.
+
+**Server aktualisieren** (im Ordner `sync-server`):
+
+```bash
+npx.cmd wrangler deploy
+```
+
+Falls ein Virenscanner (z. B. Norton) HTTPS prüft und wrangler mit `UNABLE_TO_VERIFY_LEAF_SIGNATURE` abbricht, vorher `$env:NODE_OPTIONS = '--use-system-ca'` setzen.
+
 ## Browser-Erweiterung (PC: Chrome / Edge)
 
 Der Ordner `extension/` enthält eine Erweiterung, die Logins auf Webseiten ausfüllt.

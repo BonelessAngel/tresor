@@ -3,7 +3,7 @@
 import { fetchRemote } from "./sync-core.js";
 
 const DEFAULT_AUTOLOCK_MIN = 15;
-const SYNC_URL = "https://tresor-sync.REPLACE_ME.workers.dev";
+const SYNC_URL = "https://tresor-sync.tresor-sync.workers.dev";
 
 // Zum lokalen Testen lässt sich die Server-Adresse in chrome.storage.local.syncUrl überschreiben.
 async function syncUrl() {

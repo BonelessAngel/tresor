@@ -5,5 +5,5 @@ compatibility_date = "2026-10-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "tresor-sync"
-database_id = "00000000-0000-0000-0000-000000000000" # wird nach "wrangler d1 create" ersetzt
+database_id = "84ce757e-8567-4d4e-a6f6-b5049b4b7552"
 migrations_dir = "migrations"
